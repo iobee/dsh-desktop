@@ -19,11 +19,6 @@ const stage = await mkdtemp(join(tmpdir(), "dsh-desktop-dmg-"));
 try {
   execFileSync(
     "codesign",
-    ["--force", "--deep", "--sign", "-", "--timestamp=none", sourceApp],
-    { stdio: "inherit" },
-  );
-  execFileSync(
-    "codesign",
     ["--verify", "--deep", "--strict", "--verbose=2", sourceApp],
     { stdio: "inherit" },
   );

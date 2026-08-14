@@ -28,6 +28,12 @@ const runtimeDir = join(resources, "bootstrap-runtime");
 const manifestPath = join(resources, "runtime-manifest.json");
 const downloads = join(resources, ".downloads");
 
+async function preserveResourceDirectories() {
+  await Promise.all(
+    [nodeDir, npmDir, runtimeDir].map((directory) => writeFile(join(directory, ".gitkeep"), "\n")),
+  );
+}
+
 if (platform() !== "darwin" || arch() !== "arm64") {
   throw new Error(`This bootstrap currently targets Apple Silicon macOS, got ${platform()}-${arch()}`);
 }
@@ -45,6 +51,7 @@ if (
   && existsSync(join(npmDir, "node_modules", "npm", "bin", "npm-cli.js"))
   && existsSync(join(runtimeDir, "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js"))
 ) {
+  await preserveResourceDirectories();
   process.stdout.write(
     `Runtime already prepared: Node ${NODE_VERSION}, npm ${NPM_VERSION}, dsh ${expectedManifest.dshVersion}\n`,
   );
@@ -180,6 +187,7 @@ await writeFile(
     2,
   )}\n`,
 );
+await preserveResourceDirectories();
 process.stdout.write(
   `Prepared Node ${NODE_VERSION}, npm ${NPM_VERSION}, and ${DSH_PACKAGE} ${dshManifest.version}\n`,
 );

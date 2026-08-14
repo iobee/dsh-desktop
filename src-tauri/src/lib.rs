@@ -1,7 +1,9 @@
+mod app_updater;
 mod runtime;
 
 use std::sync::Arc;
 
+use app_updater::AppUpdater;
 use runtime::RuntimeManager;
 use tauri::{
     menu::{MenuBuilder, SubmenuBuilder},
@@ -10,6 +12,7 @@ use tauri::{
 
 struct AppState {
     runtime: Arc<RuntimeManager>,
+    updater: Arc<AppUpdater>,
 }
 
 #[tauri::command]
@@ -22,7 +25,8 @@ async fn bootstrap(
     let result = tauri::async_runtime::spawn_blocking(move || manager.start(&start_app))
         .await
         .map_err(|error| format!("启动任务异常结束：{error}"))??;
-    state.runtime.schedule_update_check(app);
+    state.runtime.schedule_update_check(app.clone());
+    state.updater.schedule_update_check(app);
     Ok(result)
 }
 
@@ -33,7 +37,8 @@ fn open_logs(state: State<'_, AppState>) -> Result<(), String> {
 
 fn install_menu(app: &tauri::App) -> tauri::Result<()> {
     let app_menu = SubmenuBuilder::new(app, "DSH Desktop")
-        .text("check-update", "检查 dsh 更新…")
+        .text("check-app-update", "检查 DSH Desktop 更新…")
+        .text("check-dsh-update", "检查 dsh 更新…")
         .text("restart", "重新启动")
         .separator()
         .text("open-logs", "打开日志")
@@ -63,20 +68,25 @@ fn install_menu(app: &tauri::App) -> tauri::Result<()> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let resource_dir = app.path().resource_dir()?;
             let app_data_dir = app.path().app_data_dir()?;
-            let runtime = Arc::new(RuntimeManager::new(resource_dir, app_data_dir)?);
-            app.manage(AppState { runtime });
+            let runtime = Arc::new(RuntimeManager::new(resource_dir, app_data_dir.clone())?);
+            let updater = Arc::new(AppUpdater::new(app_data_dir)?);
+            app.manage(AppState { runtime, updater });
             install_menu(app)?;
             Ok(())
         })
         .on_menu_event(|app, event| {
             let state = app.state::<AppState>();
             match event.id().as_ref() {
-                "check-update" => state.runtime.check_for_updates(app.clone(), true),
+                "check-app-update" => state.updater.check_for_updates(app.clone(), true),
+                "check-dsh-update" => state.runtime.check_for_updates(app.clone(), true),
                 "restart" => {
+                    state.updater.terminate();
                     state.runtime.terminate();
                     app.restart();
                 }
@@ -89,7 +99,9 @@ pub fn run() {
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::Destroyed) {
                 let app = window.app_handle();
-                app.state::<AppState>().runtime.terminate();
+                let state = app.state::<AppState>();
+                state.updater.terminate();
+                state.runtime.terminate();
                 app.exit(0);
             }
         })
@@ -99,7 +111,9 @@ pub fn run() {
 
     app.run(|app, event| {
         if matches!(event, RunEvent::Exit | RunEvent::ExitRequested { .. }) {
-            app.state::<AppState>().runtime.terminate();
+            let state = app.state::<AppState>();
+            state.updater.terminate();
+            state.runtime.terminate();
         }
     });
 }
