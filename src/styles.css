@@ -1,0 +1,143 @@
+:root {
+  color: #f4f7fb;
+  background: #0b0d12;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 35%, rgba(69, 126, 255, 0.13), transparent 38%),
+    #0b0d12;
+}
+
+.launch-card {
+  width: min(520px, calc(100vw - 48px));
+  padding: 42px;
+  text-align: center;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 22px;
+  background: rgba(18, 21, 29, 0.82);
+  box-shadow: 0 24px 90px rgba(0, 0, 0, 0.32);
+  backdrop-filter: blur(24px);
+}
+
+.mark {
+  width: 58px;
+  height: 58px;
+  margin: 0 auto 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 15px;
+  color: #dce7ff;
+  background: linear-gradient(145deg, #315bc4, #17306c);
+  box-shadow: 0 10px 32px rgba(49, 91, 196, 0.35);
+  font: 700 19px/1 ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+
+.eyebrow {
+  margin: 0 0 7px;
+  color: #7184ae;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+}
+
+h1 {
+  margin: 0 0 28px;
+  font-size: 32px;
+  line-height: 1.15;
+  letter-spacing: -0.035em;
+}
+
+.status-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 11px;
+}
+
+#status {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 550;
+}
+
+.spinner {
+  width: 15px;
+  height: 15px;
+  border: 2px solid rgba(148, 173, 230, 0.25);
+  border-top-color: #91adf2;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.hint {
+  margin: 10px 0 0;
+  color: #7f8798;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+pre {
+  max-height: 150px;
+  margin: 20px 0 0;
+  padding: 14px;
+  overflow: auto;
+  text-align: left;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #ffc1c1;
+  border: 1px solid rgba(255, 105, 105, 0.2);
+  border-radius: 10px;
+  background: rgba(95, 25, 25, 0.18);
+  font: 12px/1.5 ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+
+.actions {
+  margin-top: 20px;
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+
+button {
+  padding: 9px 15px;
+  color: #fff;
+  border: 1px solid #4775dc;
+  border-radius: 9px;
+  background: #315bc4;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+button.secondary {
+  color: #c6ccda;
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+button:hover {
+  filter: brightness(1.12);
+}
+
+[hidden] {
+  display: none !important;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}

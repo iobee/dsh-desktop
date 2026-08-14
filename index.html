@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0b0d12" />
+    <title>DSH Desktop</title>
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+  <body>
+    <main class="launch-card" aria-live="polite">
+      <div class="mark" aria-hidden="true"><span>&gt;_</span></div>
+      <p class="eyebrow">DEEPSEEK HARNESS</p>
+      <h1>DSH Desktop</h1>
+      <div class="status-row">
+        <span class="spinner" id="spinner" aria-hidden="true"></span>
+        <p id="status">正在启动本机服务…</p>
+      </div>
+      <p class="hint" id="hint">直接使用已安装版本；更新检查不会阻塞启动。</p>
+      <pre id="error" hidden></pre>
+      <div class="actions" id="actions" hidden>
+        <button id="retry" type="button">重试</button>
+        <button id="logs" class="secondary" type="button">打开日志</button>
+      </div>
+    </main>
+  </body>
+</html>
