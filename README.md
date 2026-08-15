@@ -68,10 +68,10 @@ Windows 安装包由 `.github/workflows/windows-build.yml` 在 GitHub 的 Window
 以后发布时先同步版本号并提交到 `main`：
 
 ```sh
-npm run version:set -- 0.1.4
-npm run release:verify -- v0.1.4
+npm run version:set -- 0.1.5
+npm run release:verify -- v0.1.5
 git add -A
-git commit -m "Release v0.1.4"
+git commit -m "Release v0.1.5"
 ```
 
 等待 `Windows build` 工作流通过，再把其 artifact 下载到本机：
@@ -84,13 +84,13 @@ gh run download <run-id> --name dsh-desktop-windows-x64 --dir dist-windows
 确认提交和 Windows 安装包无误后运行：
 
 ```sh
-npm run release:publish -- --windows-installer "dist-windows/DSH Desktop_0.1.4_x64-setup.exe" "本次更新说明"
+npm run release:publish -- --windows-installer "dist-windows/DSH Desktop_0.1.5_x64-setup.exe" "本次更新说明"
 ```
 
 该命令会在本机运行测试、准备最新 npm dsh、ad-hoc 签名 macOS 应用，并用同一把更新私钥为 macOS 更新包和 Windows 安装包签名。随后它生成同时包含 `darwin-aarch64` 与 `windows-x86_64` 的 `latest.json`，推送 `main` 和版本标签，并通过已登录的 `gh` 创建 GitHub Release。私钥全程留在本机，不会交给 GitHub Actions。只想验证完整打包链路而不推送时使用：
 
 ```sh
-npm run release:publish -- --dry-run --windows-installer "dist-windows/DSH Desktop_0.1.4_x64-setup.exe"
+npm run release:publish -- --dry-run --windows-installer "dist-windows/DSH Desktop_0.1.5_x64-setup.exe"
 ```
 
 当前发行物没有 Apple Developer ID、公证或 Windows Authenticode 签名，适合小范围极客用户；Tauri 更新包仍使用项目自己的私钥强制验签。以后获得平台证书时，系统信任签名可以与 npm dsh 更新继续保持两条独立通道。

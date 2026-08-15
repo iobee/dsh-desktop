@@ -1,5 +1,5 @@
 use std::{
-    collections::HashSet,
+    collections::{HashSet, VecDeque},
     env,
     fs::{self, File, OpenOptions},
     io::{BufRead, BufReader, Write},
@@ -7,7 +7,7 @@ use std::{
     process::{Child, Command, Stdio},
     sync::{
         atomic::{AtomicBool, Ordering},
-        mpsc, Mutex,
+        mpsc, Arc, Mutex,
     },
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -35,6 +35,8 @@ const START_TIMEOUT: Duration = Duration::from_secs(30);
 const UPDATE_DELAY: Duration = Duration::from_secs(60);
 const UPDATE_INTERVAL_SECS: u64 = 24 * 60 * 60;
 const FAILED_RETRY_SECS: u64 = 60 * 60;
+const ERROR_TAIL_LINES: usize = 20;
+const ERROR_TAIL_LINE_CHARS: usize = 1_000;
 #[cfg(windows)]
 const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
 #[cfg(windows)]
@@ -110,6 +112,8 @@ impl RuntimeManager {
         resource_dir: PathBuf,
         app_data_dir: PathBuf,
     ) -> Result<Self, Box<dyn std::error::Error>> {
+        let resource_dir = node_compatible_path(&resource_dir);
+        let app_data_dir = node_compatible_path(&app_data_dir);
         let manifest_path = resolve_resource(&resource_dir, "runtime-manifest.json");
         let manifest: BundledManifest =
             serde_json::from_reader(File::open(&manifest_path).map_err(|error| {
@@ -432,6 +436,8 @@ impl RuntimeManager {
         let (ready_tx, ready_rx) = mpsc::channel();
         let output_log = self.runtime_log();
         let error_log = output_log.clone();
+        let stderr_tail = Arc::new(Mutex::new(VecDeque::with_capacity(ERROR_TAIL_LINES)));
+        let stderr_tail_writer = Arc::clone(&stderr_tail);
         thread::spawn(move || {
             for line in BufReader::new(stdout).lines().map_while(Result::ok) {
                 append_log(&output_log, &format!("stdout | {line}"));
@@ -440,11 +446,12 @@ impl RuntimeManager {
                 }
             }
         });
-        thread::spawn(move || {
+        let mut stderr_thread = Some(thread::spawn(move || {
             for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+                remember_stderr_line(&stderr_tail_writer, &line);
                 append_log(&error_log, &format!("stderr | {line}"));
             }
-        });
+        }));
 
         let deadline = Instant::now() + timeout;
         loop {
@@ -453,14 +460,31 @@ impl RuntimeManager {
             }
             match child.try_wait() {
                 Ok(Some(status)) => {
-                    return Err(format!("进程在就绪前退出（{status}）"));
+                    if let Some(handle) = stderr_thread.take() {
+                        let _ = handle.join();
+                    }
+                    return Err(with_stderr_tail(
+                        format!("进程在就绪前退出（{status}）"),
+                        &stderr_tail,
+                    ));
                 }
                 Ok(None) => {}
-                Err(error) => return Err(format!("无法读取进程状态：{error}")),
+                Err(error) => {
+                    return Err(with_stderr_tail(
+                        format!("无法读取进程状态：{error}"),
+                        &stderr_tail,
+                    ));
+                }
             }
             if Instant::now() >= deadline {
                 terminate_child(&mut child, process_id);
-                return Err(format!("{timeout:?} 内没有收到就绪信号"));
+                if let Some(handle) = stderr_thread.take() {
+                    let _ = handle.join();
+                }
+                return Err(with_stderr_tail(
+                    format!("{timeout:?} 内没有收到就绪信号"),
+                    &stderr_tail,
+                ));
             }
             thread::sleep(Duration::from_millis(50));
         }
@@ -652,6 +676,17 @@ fn resolve_resource(root: &Path, relative: &str) -> PathBuf {
     }
 }
 
+fn node_compatible_path(path: &Path) -> PathBuf {
+    #[cfg(windows)]
+    {
+        dunce::simplified(path).to_path_buf()
+    }
+    #[cfg(not(windows))]
+    {
+        path.to_path_buf()
+    }
+}
+
 fn bundled_node_resource() -> &'static str {
     if cfg!(windows) {
         "node/node.exe"
@@ -725,6 +760,33 @@ fn append_log(path: &Path, message: &str) {
     let timestamp = unix_time();
     if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
         let _ = writeln!(file, "[{timestamp}] {message}");
+    }
+}
+
+fn remember_stderr_line(tail: &Mutex<VecDeque<String>>, line: &str) {
+    let mut captured = line.chars().take(ERROR_TAIL_LINE_CHARS).collect::<String>();
+    if line.chars().count() > ERROR_TAIL_LINE_CHARS {
+        captured.push('…');
+    }
+    if let Ok(mut lines) = tail.lock() {
+        if lines.len() == ERROR_TAIL_LINES {
+            lines.pop_front();
+        }
+        lines.push_back(captured);
+    }
+}
+
+fn with_stderr_tail(message: String, tail: &Mutex<VecDeque<String>>) -> String {
+    let Ok(lines) = tail.lock() else {
+        return message;
+    };
+    if lines.is_empty() {
+        message
+    } else {
+        format!(
+            "{message}\n\n关键日志：\n{}",
+            lines.iter().cloned().collect::<Vec<_>>().join("\n")
+        )
     }
 }
 
@@ -957,6 +1019,62 @@ mod tests {
         assert_eq!(node_platform_name("windows"), "win32");
         assert_eq!(node_arch_name("x86_64"), "x64");
         assert_eq!(node_platform_name("linux"), "linux");
+    }
+
+    #[test]
+    fn keeps_recent_stderr_in_the_startup_error() {
+        let tail = Mutex::new(VecDeque::new());
+        remember_stderr_line(&tail, "first failure");
+        remember_stderr_line(&tail, "second failure");
+        assert_eq!(
+            with_stderr_tail("启动失败".to_string(), &tail),
+            "启动失败\n\n关键日志：\nfirst failure\nsecond failure"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn simplifies_tauri_verbatim_paths_before_launching_node() {
+        assert_eq!(
+            node_compatible_path(Path::new(
+                r"\\?\C:\Users\test\AppData\Local\DSH Desktop\resources"
+            )),
+            PathBuf::from(r"C:\Users\test\AppData\Local\DSH Desktop\resources")
+        );
+        assert_eq!(
+            node_compatible_path(Path::new(r"C:\Users\test\AppData\Roaming")),
+            PathBuf::from(r"C:\Users\test\AppData\Roaming")
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn launches_bundled_dsh_from_a_tauri_verbatim_resource_path() {
+        let resource_dir =
+            fs::canonicalize(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources"))
+                .expect("canonicalize prepared resources");
+        assert!(resource_dir.to_string_lossy().starts_with(r"\\?\"));
+
+        let app_data = env::temp_dir().join(format!(
+            "dsh-desktop-windows-runtime-{}-{}",
+            std::process::id(),
+            unix_time()
+        ));
+        fs::create_dir_all(&app_data).expect("create temporary app data");
+        let app_data = fs::canonicalize(&app_data).expect("canonicalize temporary app data");
+        let manager = RuntimeManager::new(resource_dir, app_data.clone())
+            .expect("initialize runtime from verbatim paths");
+        let version = manager.manifest.dsh_version.clone();
+        let runtime = manager.paths.bundled_runtime.clone();
+        let dsh_home = manager.paths.smoke.join("launch-test");
+        fs::create_dir_all(&dsh_home).expect("create temporary dsh home");
+
+        let (mut process, url) = manager
+            .launch_at(&version, &runtime, Some(&dsh_home), START_TIMEOUT)
+            .expect("launch bundled dsh");
+        assert!(url.starts_with("http://127.0.0.1:"));
+        process.terminate();
+        let _ = fs::remove_dir_all(app_data);
     }
 
     #[test]

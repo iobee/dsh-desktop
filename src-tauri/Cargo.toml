@@ -1,6 +1,6 @@
 [package]
 name = "dsh-desktop"
-version = "0.1.4"
+version = "0.1.5"
 description = "A lightweight desktop host for DeepSeek Harness"
 authors = ["iobee"]
 edition = "2021"
@@ -35,6 +35,9 @@ objc2-app-kit = { version = "0.3", default-features = false, features = [
   "NSView",
   "NSWindow",
 ] }
+
+[target.'cfg(windows)'.dependencies]
+dunce = "1"
 
 [dev-dependencies]
 base64 = "0.22"
