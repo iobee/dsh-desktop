@@ -29,6 +29,8 @@ const manifestPath = join(resources, "runtime-manifest.json");
 const downloads = join(resources, ".downloads");
 const hostPlatform = platform();
 const hostArch = arch();
+const hostNpmCli = process.env.npm_execpath;
+if (!hostNpmCli) throw new Error("prepare:runtime must be run through npm");
 const target = (() => {
   if (hostPlatform === "darwin" && hostArch === "arm64") {
     return {
@@ -148,8 +150,16 @@ await writeFile(
   `${JSON.stringify({ private: true, dependencies: { npm: NPM_VERSION } }, null, 2)}\n`,
 );
 execFileSync(
-  hostPlatform === "win32" ? "npm.cmd" : "npm",
-  ["install", "--omit=dev", "--save-exact", "--no-audit", "--no-fund", "--package-lock=false"],
+  process.execPath,
+  [
+    hostNpmCli,
+    "install",
+    "--omit=dev",
+    "--save-exact",
+    "--no-audit",
+    "--no-fund",
+    "--package-lock=false",
+  ],
   { cwd: npmDir, stdio: "inherit", env: { ...process.env, npm_config_update_notifier: "false" } },
 );
 const npmCli = join(npmDir, "node_modules", "npm", "bin", "npm-cli.js");
