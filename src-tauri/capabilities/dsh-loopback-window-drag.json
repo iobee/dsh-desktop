@@ -6,8 +6,10 @@
   "remote": {
     "urls": ["http://127.0.0.1:*"]
   },
+  "platforms": ["macOS"],
   "windows": ["main"],
   "permissions": [
+    "allow-set-traffic-lights-visible",
     "core:window:allow-start-dragging",
     "core:window:allow-internal-toggle-maximize"
   ]

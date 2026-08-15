@@ -1,5 +1,7 @@
 mod app_updater;
 mod runtime;
+#[cfg(target_os = "macos")]
+mod window_chrome;
 
 use std::sync::Arc;
 
@@ -65,19 +67,12 @@ fn install_menu(app: &tauri::App) -> tauri::Result<()> {
     Ok(())
 }
 
-#[cfg(target_os = "macos")]
-fn window_chrome_plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
-    tauri::plugin::Builder::new("window-chrome")
-        .js_init_script(include_str!("window_chrome.js"))
-        .build()
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default();
     #[cfg(target_os = "macos")]
-    let builder = builder.plugin(window_chrome_plugin());
-    let app = builder
+    let builder = builder.plugin(window_chrome::plugin());
+    let builder = builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -88,6 +83,13 @@ pub fn run() {
             let updater = Arc::new(AppUpdater::new(app_data_dir)?);
             app.manage(AppState { runtime, updater });
             install_menu(app)?;
+            #[cfg(target_os = "macos")]
+            {
+                let window = app.get_webview_window("main").ok_or_else(|| {
+                    std::io::Error::other("main window is unavailable during setup")
+                })?;
+                window_chrome::hide_traffic_lights(&window)?;
+            }
             Ok(())
         })
         .on_menu_event(|app, event| {
@@ -114,8 +116,16 @@ pub fn run() {
                 state.runtime.terminate();
                 app.exit(0);
             }
-        })
-        .invoke_handler(tauri::generate_handler![bootstrap, open_logs])
+        });
+    #[cfg(target_os = "macos")]
+    let builder = builder.invoke_handler(tauri::generate_handler![
+        bootstrap,
+        open_logs,
+        window_chrome::set_traffic_lights_visible
+    ]);
+    #[cfg(not(target_os = "macos"))]
+    let builder = builder.invoke_handler(tauri::generate_handler![bootstrap, open_logs]);
+    let app = builder
         .build(tauri::generate_context!())
         .expect("failed to build DSH Desktop");
 
