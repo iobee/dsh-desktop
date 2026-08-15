@@ -1,6 +1,6 @@
 # DSH Desktop
 
-DSH Desktop 是一个独立、轻量的 macOS 外壳，让 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 可以像普通应用一样打开。它不修改、复制或 fork 来源仓库的代码；运行内容始终来自 npm 官方包 `@deepseek-ai/dsh`。
+DSH Desktop 是一个独立、轻量的 macOS 外壳，让 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 可以像普通应用一样打开。它使用沉浸式 macOS 窗口，不保留单独的标题栏占位；也不修改、复制或 fork 来源仓库的代码，运行内容始终来自 npm 官方包 `@deepseek-ai/dsh`。
 
 ## 使用方式
 
@@ -56,10 +56,10 @@ npm run desktop:build
 以后发布时先同步版本号并提交到 `main`：
 
 ```sh
-npm run version:set -- 0.1.2
-npm run release:verify -- v0.1.2
+npm run version:set -- 0.1.3
+npm run release:verify -- v0.1.3
 git add -A
-git commit -m "Release v0.1.2"
+git commit -m "Release v0.1.3"
 ```
 
 确认提交无误后运行：

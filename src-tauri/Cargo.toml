@@ -1,6 +1,6 @@
 [package]
 name = "dsh-desktop"
-version = "0.1.1"
+version = "0.1.2"
 description = "A lightweight macOS desktop host for DeepSeek Harness"
 authors = ["iobee"]
 edition = "2021"
