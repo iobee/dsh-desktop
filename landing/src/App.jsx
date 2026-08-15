@@ -19,7 +19,8 @@ const links = {
 
 const assets = {
   icon: `${import.meta.env.BASE_URL}assets/dsh-desktop-icon.png`,
-  screenshot: `${import.meta.env.BASE_URL}assets/dsh-desktop-dark.jpeg`,
+  screenshot: `${import.meta.env.BASE_URL}assets/dsh-desktop-dark.png`,
+  screenshotRetina: `${import.meta.env.BASE_URL}assets/dsh-desktop-dark@2x.png`,
 };
 
 const benefits = [
@@ -120,7 +121,10 @@ export function App() {
           <div className="product-frame">
             <img
               src={assets.screenshot}
+              srcSet={`${assets.screenshot} 1566w, ${assets.screenshotRetina} 3132w`}
+              sizes="(max-width: 520px) calc(100vw - 1.5rem), (max-width: 920px) calc(100vw - 2.5rem), (max-width: 1232px) calc(100vw - 9rem), 1088px"
               alt="DSH Desktop 暗色主题主界面，展示工作区、模式、权限与模型选择入口"
+              decoding="async"
             />
           </div>
         </section>

@@ -11,6 +11,7 @@ When implementing from a selected generated mock, treat that image as the source
 - Use the user-selected dark, cinematic mock at `design-reference.png` as the visual source of truth.
 - Preserve its premium black-and-cobalt presentation, large centered hero, oversized product window, three concise benefits, and preview caveat.
 - Keep one download zone in the hero. Do not repeat platform pills or download buttons in the footer; the footer closes with compact navigation.
+- Keep the product screenshot lossless and Retina-ready: provide an image candidate at least twice the maximum rendered width, and do not reintroduce a heavily compressed JPEG.
 - Keep product claims grounded in the parent `dsh-desktop` repository. Do not copy the mock's incorrect DeepSeek copyright attribution.
 
 The canonical public deployment is GitHub Pages at `https://iobee.github.io/dsh-desktop/`. Keep public asset URLs compatible with both the Pages subpath and local root previews through Vite's `BASE_URL`.
