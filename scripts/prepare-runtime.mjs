@@ -148,7 +148,7 @@ await writeFile(
   `${JSON.stringify({ private: true, dependencies: { npm: NPM_VERSION } }, null, 2)}\n`,
 );
 execFileSync(
-  "npm",
+  hostPlatform === "win32" ? "npm.cmd" : "npm",
   ["install", "--omit=dev", "--save-exact", "--no-audit", "--no-fund", "--package-lock=false"],
   { cwd: npmDir, stdio: "inherit", env: { ...process.env, npm_config_update_notifier: "false" } },
 );
