@@ -3,7 +3,6 @@ use std::{
     env,
     fs::{self, File, OpenOptions},
     io::{BufRead, BufReader, Write},
-    os::unix::process::CommandExt,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::{
@@ -13,6 +12,11 @@ use std::{
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
+
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 
 use semver::Version;
 use serde::{Deserialize, Serialize};
@@ -31,6 +35,10 @@ const START_TIMEOUT: Duration = Duration::from_secs(30);
 const UPDATE_DELAY: Duration = Duration::from_secs(60);
 const UPDATE_INTERVAL_SECS: u64 = 24 * 60 * 60;
 const FAILED_RETRY_SECS: u64 = 60 * 60;
+#[cfg(windows)]
+const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -72,7 +80,7 @@ struct Paths {
 
 struct ManagedProcess {
     child: Child,
-    process_group: i32,
+    process_id: u32,
 }
 
 impl ManagedProcess {
@@ -81,7 +89,7 @@ impl ManagedProcess {
     }
 
     fn terminate(&mut self) {
-        terminate_child(&mut self.child, self.process_group);
+        terminate_child(&mut self.child, self.process_id);
     }
 }
 
@@ -115,7 +123,7 @@ impl RuntimeManager {
         let current_arch = node_arch_name(env::consts::ARCH);
         if manifest.platform != current_platform || manifest.arch != current_arch {
             return Err(format!(
-                "bundled runtime targets {}-{}, but this Mac is {}-{}",
+                "bundled runtime targets {}-{}, but this computer is {}-{}",
                 manifest.platform, manifest.arch, current_platform, current_arch
             )
             .into());
@@ -129,7 +137,7 @@ impl RuntimeManager {
         fs::create_dir_all(data_root.join("smoke"))?;
 
         let paths = Paths {
-            node: resolve_resource(&resource_dir, "node/bin/node"),
+            node: resolve_resource(&resource_dir, bundled_node_resource()),
             npm_cli: resolve_resource(&resource_dir, "npm/node_modules/npm/bin/npm-cli.js"),
             bundled_runtime: resolve_resource(&resource_dir, "bootstrap-runtime"),
             runtimes: data_root.join("versions"),
@@ -326,7 +334,9 @@ impl RuntimeManager {
     }
 
     pub fn open_logs(&self) -> Result<(), String> {
-        Command::new("open")
+        let mut command = Command::new(log_directory_opener());
+        configure_background_command(&mut command);
+        command
             .arg(&self.paths.logs)
             .spawn()
             .map_err(|error| format!("无法打开日志目录：{error}"))?;
@@ -404,13 +414,13 @@ impl RuntimeManager {
         if let Some(home) = dsh_home {
             command.env("DSH_HOME", home);
         }
-        command.process_group(0);
+        configure_managed_command(&mut command);
 
         append_log(&self.desktop_log(), &format!("launching dsh {version}"));
         let mut child = command
             .spawn()
             .map_err(|error| format!("无法创建 Node 进程：{error}"))?;
-        let process_group = child.id() as i32;
+        let process_id = child.id();
         let stdout = child
             .stdout
             .take()
@@ -439,13 +449,7 @@ impl RuntimeManager {
         let deadline = Instant::now() + timeout;
         loop {
             if let Ok(url) = ready_rx.try_recv() {
-                return Ok((
-                    ManagedProcess {
-                        child,
-                        process_group,
-                    },
-                    url,
-                ));
+                return Ok((ManagedProcess { child, process_id }, url));
             }
             match child.try_wait() {
                 Ok(Some(status)) => {
@@ -455,7 +459,7 @@ impl RuntimeManager {
                 Err(error) => return Err(format!("无法读取进程状态：{error}")),
             }
             if Instant::now() >= deadline {
-                terminate_child(&mut child, process_group);
+                terminate_child(&mut child, process_id);
                 return Err(format!("{timeout:?} 内没有收到就绪信号"));
             }
             thread::sleep(Duration::from_millis(50));
@@ -476,7 +480,9 @@ impl RuntimeManager {
             self.save_state(&state)?;
         }
 
-        let output = Command::new(&self.paths.node)
+        let mut command = Command::new(&self.paths.node);
+        configure_background_command(&mut command);
+        let output = command
             .arg(&self.paths.npm_cli)
             .args(["view", PACKAGE_NAME, "dist-tags.latest", "--json"])
             .env("npm_config_cache", &self.paths.npm_cache)
@@ -544,7 +550,9 @@ impl RuntimeManager {
             &self.desktop_log(),
             &format!("installing {PACKAGE_NAME}@{version}"),
         );
-        let output = Command::new(&self.paths.node)
+        let mut install_command = Command::new(&self.paths.node);
+        configure_background_command(&mut install_command);
+        let output = install_command
             .arg(&self.paths.npm_cli)
             .args([
                 "install",
@@ -573,7 +581,9 @@ impl RuntimeManager {
             return Err(format!("npm install 失败：{message}"));
         }
 
-        let version_output = Command::new(&self.paths.node)
+        let mut version_command = Command::new(&self.paths.node);
+        configure_background_command(&mut version_command);
+        let version_output = version_command
             .arg(runtime_cli(&stage))
             .arg("--version")
             .output()
@@ -642,6 +652,38 @@ fn resolve_resource(root: &Path, relative: &str) -> PathBuf {
     }
 }
 
+fn bundled_node_resource() -> &'static str {
+    if cfg!(windows) {
+        "node/node.exe"
+    } else {
+        "node/bin/node"
+    }
+}
+
+fn log_directory_opener() -> &'static str {
+    if cfg!(windows) {
+        "explorer.exe"
+    } else if cfg!(target_os = "macos") {
+        "open"
+    } else {
+        "xdg-open"
+    }
+}
+
+fn configure_background_command(command: &mut Command) {
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+    #[cfg(not(windows))]
+    let _ = command;
+}
+
+fn configure_managed_command(command: &mut Command) {
+    #[cfg(unix)]
+    command.process_group(0);
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP);
+}
+
 fn runtime_cli(runtime: &Path) -> PathBuf {
     runtime.join("node_modules/@deepseek-ai/dsh/lib/bin.js")
 }
@@ -649,20 +691,30 @@ fn runtime_cli(runtime: &Path) -> PathBuf {
 fn runtime_path_env(node: &Path, runtime: &Path) -> std::ffi::OsString {
     let mut paths = vec![
         node.parent()
-            .unwrap_or_else(|| Path::new("/usr/bin"))
+            .unwrap_or_else(|| Path::new("."))
             .to_path_buf(),
         runtime.join("node_modules/.bin"),
     ];
     if let Some(existing) = env::var_os("PATH") {
         paths.extend(env::split_paths(&existing));
     }
-    env::join_paths(paths).unwrap_or_else(|_| std::ffi::OsString::from("/usr/bin:/bin"))
+    env::join_paths(paths)
+        .ok()
+        .or_else(|| env::var_os("PATH"))
+        .unwrap_or_default()
 }
 
 fn user_home() -> PathBuf {
     env::var_os("HOME")
+        .or_else(|| env::var_os("USERPROFILE"))
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/"))
+        .or_else(|| {
+            let drive = env::var_os("HOMEDRIVE")?;
+            let path = env::var_os("HOMEPATH")?;
+            Some(PathBuf::from(drive).join(path))
+        })
+        .or_else(|| env::current_dir().ok())
+        .unwrap_or_else(|| PathBuf::from("."))
 }
 
 fn read_state(path: &Path) -> Option<RuntimeState> {
@@ -734,6 +786,7 @@ fn version_is_newer(candidate: &str, active: &str) -> bool {
 fn node_platform_name(rust_name: &str) -> &str {
     match rust_name {
         "macos" => "darwin",
+        "windows" => "win32",
         other => other,
     }
 }
@@ -741,6 +794,7 @@ fn node_platform_name(rust_name: &str) -> &str {
 fn node_arch_name(rust_name: &str) -> &str {
     match rust_name {
         "aarch64" => "arm64",
+        "x86_64" => "x64",
         other => other,
     }
 }
@@ -770,7 +824,9 @@ fn launch_candidates(state: &RuntimeState, bundled: &str) -> Vec<String> {
     .collect()
 }
 
-fn terminate_child(child: &mut Child, process_group: i32) {
+#[cfg(unix)]
+fn terminate_child(child: &mut Child, process_id: u32) {
+    let process_group = process_id as i32;
     unsafe {
         libc::kill(-process_group, libc::SIGTERM);
     }
@@ -787,10 +843,46 @@ fn terminate_child(child: &mut Child, process_group: i32) {
     let _ = child.wait();
 }
 
+#[cfg(windows)]
+fn terminate_child(child: &mut Child, process_id: u32) {
+    let mut terminate = Command::new("taskkill.exe");
+    configure_background_command(&mut terminate);
+    let _ = terminate
+        .args(["/PID", &process_id.to_string(), "/T"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while Instant::now() < deadline {
+        if matches!(child.try_wait(), Ok(Some(_))) {
+            return;
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+    let mut force = Command::new("taskkill.exe");
+    configure_background_command(&mut force);
+    let _ = force
+        .args(["/F", "/PID", &process_id.to_string(), "/T"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    let _ = child.wait();
+}
+
 fn prune_other_platforms(runtime: &Path) {
     let prebuilds = runtime.join("node_modules/node-pty/prebuilds");
-    for target in ["darwin-x64", "win32-arm64", "win32-x64"] {
-        let _ = fs::remove_dir_all(prebuilds.join(target));
+    let retained = format!(
+        "{}-{}",
+        node_platform_name(env::consts::OS),
+        node_arch_name(env::consts::ARCH)
+    );
+    let Ok(entries) = fs::read_dir(prebuilds) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if entry.file_name() != retained.as_str() {
+            let _ = fs::remove_dir_all(entry.path());
+        }
     }
 }
 
@@ -862,8 +954,9 @@ mod tests {
     fn normalizes_rust_target_names_to_node_names() {
         assert_eq!(node_platform_name("macos"), "darwin");
         assert_eq!(node_arch_name("aarch64"), "arm64");
+        assert_eq!(node_platform_name("windows"), "win32");
+        assert_eq!(node_arch_name("x86_64"), "x64");
         assert_eq!(node_platform_name("linux"), "linux");
-        assert_eq!(node_arch_name("x86_64"), "x86_64");
     }
 
     #[test]

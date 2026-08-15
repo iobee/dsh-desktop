@@ -3,14 +3,14 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { arch, platform } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const NODE_VERSION = "24.19.0";
 const NPM_VERSION = "11.19.0";
-const RUNTIME_LAYOUT_VERSION = 3;
+const RUNTIME_LAYOUT_VERSION = 4;
 const DSH_PACKAGE = "@deepseek-ai/dsh";
 const DSH_TAG = "latest";
 const DSH_INSTALL_SCRIPTS = [
@@ -27,15 +27,34 @@ const npmDir = join(resources, "npm");
 const runtimeDir = join(resources, "bootstrap-runtime");
 const manifestPath = join(resources, "runtime-manifest.json");
 const downloads = join(resources, ".downloads");
+const hostPlatform = platform();
+const hostArch = arch();
+const target = (() => {
+  if (hostPlatform === "darwin" && hostArch === "arm64") {
+    return {
+      archiveName: `node-v${NODE_VERSION}-darwin-arm64.tar.gz`,
+      extractedName: `node-v${NODE_VERSION}-darwin-arm64`,
+      nodeExecutable: join("bin", "node"),
+      retainedNodePtyPrebuild: "darwin-arm64",
+    };
+  }
+  if (hostPlatform === "win32" && hostArch === "x64") {
+    return {
+      archiveName: `node-v${NODE_VERSION}-win-x64.zip`,
+      extractedName: `node-v${NODE_VERSION}-win-x64`,
+      nodeExecutable: "node.exe",
+      retainedNodePtyPrebuild: "win32-x64",
+    };
+  }
+  throw new Error(
+    `This bootstrap supports Apple Silicon macOS and x64 Windows, got ${hostPlatform}-${hostArch}`,
+  );
+})();
 
 async function preserveResourceDirectories() {
   await Promise.all(
     [nodeDir, npmDir, runtimeDir].map((directory) => writeFile(join(directory, ".gitkeep"), "\n")),
   );
-}
-
-if (platform() !== "darwin" || arch() !== "arm64") {
-  throw new Error(`This bootstrap currently targets Apple Silicon macOS, got ${platform()}-${arch()}`);
 }
 
 const expectedManifest = existsSync(manifestPath)
@@ -45,9 +64,9 @@ if (
   expectedManifest?.nodeVersion === NODE_VERSION
   && expectedManifest?.npmVersion === NPM_VERSION
   && expectedManifest?.runtimeLayoutVersion === RUNTIME_LAYOUT_VERSION
-  && expectedManifest?.platform === "darwin"
-  && expectedManifest?.arch === "arm64"
-  && existsSync(join(nodeDir, "bin", "node"))
+  && expectedManifest?.platform === hostPlatform
+  && expectedManifest?.arch === hostArch
+  && existsSync(join(nodeDir, target.nodeExecutable))
   && existsSync(join(npmDir, "node_modules", "npm", "bin", "npm-cli.js"))
   && existsSync(join(runtimeDir, "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js"))
 ) {
@@ -59,13 +78,13 @@ if (
 }
 
 await mkdir(downloads, { recursive: true });
-const archiveName = `node-v${NODE_VERSION}-darwin-arm64.tar.gz`;
+const archiveName = target.archiveName;
 const archive = join(downloads, archiveName);
 const baseUrl = `https://nodejs.org/dist/v${NODE_VERSION}`;
 
 function download(url, target) {
   process.stdout.write(`Downloading ${url}\n`);
-  execFileSync("curl", [
+  execFileSync(hostPlatform === "win32" ? "curl.exe" : "curl", [
     "--fail",
     "--location",
     "--retry",
@@ -95,15 +114,16 @@ if (actual !== expected) throw new Error(`Checksum mismatch for ${archiveName}`)
 const extractRoot = join(downloads, `extract-${process.pid}`);
 await rm(extractRoot, { recursive: true, force: true });
 await mkdir(extractRoot, { recursive: true });
-execFileSync("tar", ["-xzf", archive, "-C", extractRoot]);
+execFileSync("tar", [hostPlatform === "win32" ? "-xf" : "-xzf", archive, "-C", extractRoot]);
 await rm(nodeDir, { recursive: true, force: true });
-await rename(join(extractRoot, `node-v${NODE_VERSION}-darwin-arm64`), nodeDir);
+await rename(join(extractRoot, target.extractedName), nodeDir);
 await rm(extractRoot, { recursive: true, force: true });
-for (const relative of ["include", "lib", "share", "README.md", "CHANGELOG.md"]) {
+for (const relative of ["include", "lib", "share", "node_modules", "README.md", "CHANGELOG.md"]) {
   await rm(join(nodeDir, relative), { recursive: true, force: true });
 }
-for (const command of ["corepack", "npm", "npx"]) {
-  await rm(join(nodeDir, "bin", command), { force: true });
+for (const command of ["corepack", "corepack.cmd", "npm", "npm.cmd", "npx", "npx.cmd"]) {
+  const commandPath = hostPlatform === "win32" ? join(nodeDir, command) : join(nodeDir, "bin", command);
+  await rm(commandPath, { force: true });
 }
 
 await rm(runtimeDir, { recursive: true, force: true });
@@ -120,7 +140,7 @@ await writeFile(
     2,
   )}\n`,
 );
-const bundledNode = join(nodeDir, "bin", "node");
+const bundledNode = join(nodeDir, target.nodeExecutable);
 await rm(npmDir, { recursive: true, force: true });
 await mkdir(npmDir, { recursive: true });
 await writeFile(
@@ -154,8 +174,10 @@ execFileSync(
     },
   },
 );
-for (const target of ["darwin-x64", "win32-arm64", "win32-x64"]) {
-  await rm(join(runtimeDir, "node_modules", "node-pty", "prebuilds", target), {
+const nodePtyPrebuilds = join(runtimeDir, "node_modules", "node-pty", "prebuilds");
+for (const prebuild of await readdir(nodePtyPrebuilds)) {
+  if (prebuild === target.retainedNodePtyPrebuild) continue;
+  await rm(join(nodePtyPrebuilds, prebuild), {
     recursive: true,
     force: true,
   });
@@ -180,8 +202,8 @@ await writeFile(
       npmVersion: NPM_VERSION,
       runtimeLayoutVersion: RUNTIME_LAYOUT_VERSION,
       dshVersion: dshManifest.version,
-      platform: "darwin",
-      arch: "arm64",
+      platform: hostPlatform,
+      arch: hostArch,
     },
     null,
     2,

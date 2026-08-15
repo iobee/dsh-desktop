@@ -1,0 +1,72 @@
+name: Windows build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - codex/windows-build
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+          cache: npm
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Prepare bundled Windows runtime
+        run: npm run prepare:runtime
+
+      - name: Smoke-test bundled dsh runtime
+        run: npm run runtime:smoke
+
+      - name: Run Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: Build unsigned Windows installer
+        run: npm run tauri -- build
+
+      - name: Record installer checksum
+        shell: pwsh
+        run: |
+          Get-ChildItem src-tauri/target/release/bundle/nsis/*-setup.exe |
+            Get-FileHash -Algorithm SHA256 |
+            Format-Table -AutoSize |
+            Out-String |
+            Tee-Object -FilePath windows-SHA256.txt
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsh-desktop-windows-x64
+          path: |
+            src-tauri/target/release/bundle/nsis/*-setup.exe
+            windows-SHA256.txt
+          if-no-files-found: error
+          retention-days: 14

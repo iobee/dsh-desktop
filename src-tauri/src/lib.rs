@@ -65,6 +65,7 @@ fn install_menu(app: &tauri::App) -> tauri::Result<()> {
     Ok(())
 }
 
+#[cfg(target_os = "macos")]
 fn window_chrome_plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
     tauri::plugin::Builder::new("window-chrome")
         .js_init_script(include_str!("window_chrome.js"))
@@ -73,8 +74,10 @@ fn window_chrome_plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let app = tauri::Builder::default()
-        .plugin(window_chrome_plugin())
+    let builder = tauri::Builder::default();
+    #[cfg(target_os = "macos")]
+    let builder = builder.plugin(window_chrome_plugin());
+    let app = builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
