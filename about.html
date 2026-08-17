@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="/src/about.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#101216" />
+    <title>关于 DSH Desktop</title>
+    <script type="module" src="/src/about.ts" defer></script>
+  </head>
+  <body>
+    <main class="about-shell" data-tauri-drag-region>
+      <section class="product" aria-labelledby="product-name">
+        <img
+          class="product-icon"
+          src="/src-tauri/icons/icon.png"
+          width="76"
+          height="76"
+          alt="DSH Desktop"
+        />
+        <h1 id="product-name">DSH Desktop</h1>
+        <p class="tagline">DeepSeek Harness 的轻量桌面外壳</p>
+        <p class="desktop-version">版本 <span id="desktop-version">—</span></p>
+        <p class="runtime-version">内置 DSH <span id="dsh-version">—</span></p>
+      </section>
+
+      <footer class="about-footer">
+        <a
+          id="dsh-github"
+          href="https://github.com/deepseek-ai/deepseek-harness"
+          target="_blank"
+          rel="noreferrer"
+        >DSH GitHub</a>
+        <span aria-hidden="true">·</span>
+        <button id="open-logs" type="button">查看日志</button>
+        <span aria-hidden="true">·</span>
+        <p>MIT License</p>
+      </footer>
+      <p class="toast" id="toast" aria-live="polite" hidden></p>
+    </main>
+  </body>
+</html>

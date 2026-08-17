@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use app_updater::AppUpdater;
 use runtime::RuntimeManager;
+use serde::Serialize;
 use tauri::{
     menu::{MenuBuilder, SubmenuBuilder},
     Manager, RunEvent, State,
@@ -15,6 +16,14 @@ use tauri::{
 struct AppState {
     runtime: Arc<RuntimeManager>,
     updater: Arc<AppUpdater>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AboutInfo {
+    desktop_version: String,
+    runtime: runtime::RuntimeSnapshot,
+    desktop_update: app_updater::AppUpdateSnapshot,
 }
 
 #[tauri::command]
@@ -37,10 +46,55 @@ fn open_logs(state: State<'_, AppState>) -> Result<(), String> {
     state.runtime.open_logs()
 }
 
+#[tauri::command]
+fn get_about_info(app: tauri::AppHandle, state: State<'_, AppState>) -> AboutInfo {
+    AboutInfo {
+        desktop_version: app.package_info().version.to_string(),
+        runtime: state.runtime.snapshot(),
+        desktop_update: state.updater.snapshot(),
+    }
+}
+
+#[tauri::command]
+fn check_dsh_update(app: tauri::AppHandle, state: State<'_, AppState>) -> bool {
+    state.runtime.check_for_updates(app, true)
+}
+
+#[tauri::command]
+fn check_app_update(app: tauri::AppHandle, state: State<'_, AppState>) -> bool {
+    state.updater.check_for_updates(app, true)
+}
+
+fn show_configured_window(app: &tauri::AppHandle, label: &str) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window(label) {
+        window.show().map_err(|error| error.to_string())?;
+        window.set_focus().map_err(|error| error.to_string())?;
+        return Ok(());
+    }
+
+    let config = app
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|config| config.label == label)
+        .ok_or_else(|| format!("找不到 {label} 窗口配置"))?;
+    let window = tauri::WebviewWindowBuilder::from_config(app, config)
+        .map_err(|error| error.to_string())?
+        .build()
+        .map_err(|error| error.to_string())?;
+    #[cfg(target_os = "macos")]
+    let _ = window_chrome::hide_traffic_lights(&window);
+    window.show().map_err(|error| error.to_string())?;
+    window.set_focus().map_err(|error| error.to_string())?;
+    Ok(())
+}
+
 fn install_menu(app: &tauri::App) -> tauri::Result<()> {
     let app_menu = SubmenuBuilder::new(app, "DSH Desktop")
-        .text("check-app-update", "检查 DSH Desktop 更新…")
-        .text("check-dsh-update", "检查 dsh 更新…")
+        .text("about", "关于 DSH Desktop")
+        .text("updates", "检查更新…")
+        .separator()
         .text("restart", "重新启动")
         .separator()
         .text("open-logs", "打开日志")
@@ -95,8 +149,16 @@ pub fn run() {
         .on_menu_event(|app, event| {
             let state = app.state::<AppState>();
             match event.id().as_ref() {
-                "check-app-update" => state.updater.check_for_updates(app.clone(), true),
-                "check-dsh-update" => state.runtime.check_for_updates(app.clone(), true),
+                "about" => {
+                    if let Err(error) = show_configured_window(app, "about") {
+                        eprintln!("failed to show About window: {error}");
+                    }
+                }
+                "updates" => {
+                    if let Err(error) = show_configured_window(app, "updates") {
+                        eprintln!("failed to show Updates window: {error}");
+                    }
+                }
                 "restart" => {
                     state.updater.terminate();
                     state.runtime.terminate();
@@ -109,7 +171,14 @@ pub fn run() {
             }
         })
         .on_window_event(|window, event| {
-            if matches!(event, tauri::WindowEvent::Destroyed) {
+            if matches!(window.label(), "about" | "updates") {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+                return;
+            }
+            if window.label() == "main" && matches!(event, tauri::WindowEvent::Destroyed) {
                 let app = window.app_handle();
                 let state = app.state::<AppState>();
                 state.updater.terminate();
@@ -121,10 +190,19 @@ pub fn run() {
     let builder = builder.invoke_handler(tauri::generate_handler![
         bootstrap,
         open_logs,
+        get_about_info,
+        check_dsh_update,
+        check_app_update,
         window_chrome::set_traffic_lights_visible
     ]);
     #[cfg(not(target_os = "macos"))]
-    let builder = builder.invoke_handler(tauri::generate_handler![bootstrap, open_logs]);
+    let builder = builder.invoke_handler(tauri::generate_handler![
+        bootstrap,
+        open_logs,
+        get_about_info,
+        check_dsh_update,
+        check_app_update
+    ]);
     let app = builder
         .build(tauri::generate_context!())
         .expect("failed to build DSH Desktop");

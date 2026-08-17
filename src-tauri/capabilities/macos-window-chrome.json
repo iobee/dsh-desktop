@@ -3,6 +3,6 @@
   "identifier": "macos-window-chrome",
   "description": "Allow the bundled macOS page to reveal native window controls.",
   "platforms": ["macOS"],
-  "windows": ["main"],
+  "windows": ["main", "about", "updates"],
   "permissions": ["allow-set-traffic-lights-visible"]
 }

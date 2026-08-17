@@ -27,4 +27,13 @@ export default defineConfig(async () => ({
       ignored: ["**/src-tauri/**"],
     },
   },
+  build: {
+    rollupOptions: {
+      input: {
+        main: "index.html",
+        about: "about.html",
+        updates: "updates.html",
+      },
+    },
+  },
 }));

@@ -69,6 +69,37 @@ struct RuntimeState {
     last_successful_check: Option<u64>,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RuntimeUpdatePhase {
+    #[default]
+    Idle,
+    Checking,
+    Current,
+    Installing,
+    Verifying,
+    Ready,
+    Error,
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeUpdateSnapshot {
+    pub phase: RuntimeUpdatePhase,
+    pub target_version: Option<String>,
+    pub detail: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeSnapshot {
+    pub current_version: String,
+    pub pending_version: Option<String>,
+    pub node_version: String,
+    pub npm_version: String,
+    pub update: RuntimeUpdateSnapshot,
+}
+
 struct Paths {
     node: PathBuf,
     npm_cli: PathBuf,
@@ -102,6 +133,7 @@ pub struct RuntimeManager {
     process: Mutex<Option<ManagedProcess>>,
     startup: Mutex<Option<StartupInfo>>,
     start_gate: Mutex<()>,
+    update_status: Mutex<RuntimeUpdateSnapshot>,
     update_scheduled: AtomicBool,
     update_running: AtomicBool,
     shutting_down: AtomicBool,
@@ -161,6 +193,15 @@ impl RuntimeManager {
         }
 
         let state = read_state(&paths.state).unwrap_or_default();
+        let update_status = state
+            .pending
+            .as_ref()
+            .map(|version| RuntimeUpdateSnapshot {
+                phase: RuntimeUpdatePhase::Ready,
+                target_version: Some(version.clone()),
+                detail: Some("更新已就绪，重启后生效".to_string()),
+            })
+            .unwrap_or_default();
         append_log(
             &paths.logs.join("desktop.log"),
             &format!(
@@ -175,6 +216,7 @@ impl RuntimeManager {
             process: Mutex::new(None),
             startup: Mutex::new(None),
             start_gate: Mutex::new(()),
+            update_status: Mutex::new(update_status),
             update_scheduled: AtomicBool::new(false),
             update_running: AtomicBool::new(false),
             shutting_down: AtomicBool::new(false),
@@ -223,7 +265,7 @@ impl RuntimeManager {
         let mut failures = Vec::new();
         for version in candidates {
             let Some(runtime_path) = self.runtime_path(&version) else {
-                failures.push(format!("dsh {version}: 安装目录不存在"));
+                failures.push(format!("DSH {version}: 安装目录不存在"));
                 continue;
             };
             match self.launch_at(&version, &runtime_path, None, START_TIMEOUT) {
@@ -260,11 +302,16 @@ impl RuntimeManager {
                         .lock()
                         .map_err(|_| "启动状态锁已损坏".to_string())? = Some(info.clone());
                     if let Some(window) = app.get_webview_window("main") {
-                        let _ = window.set_title(&format!("DSH Desktop · dsh {version}"));
+                        let _ = window.set_title(&format!("DSH Desktop · DSH {version}"));
                     }
                     append_log(
                         &self.desktop_log(),
                         &format!("active runtime: dsh {version}"),
+                    );
+                    self.set_update_status(
+                        RuntimeUpdatePhase::Idle,
+                        None,
+                        Some("当前版本已就绪".to_string()),
                     );
                     return Ok(info);
                 }
@@ -273,12 +320,12 @@ impl RuntimeManager {
                         &self.desktop_log(),
                         &format!("dsh {version} failed to start: {error}"),
                     );
-                    failures.push(format!("dsh {version}: {error}"));
+                    failures.push(format!("DSH {version}: {error}"));
                 }
             }
         }
 
-        Err(format!("没有可启动的 dsh 版本。\n{}", failures.join("\n")))
+        Err(format!("没有可启动的 DSH 版本。\n{}", failures.join("\n")))
     }
 
     pub fn schedule_update_check(self: &std::sync::Arc<Self>, app: tauri::AppHandle) {
@@ -294,10 +341,19 @@ impl RuntimeManager {
         });
     }
 
-    pub fn check_for_updates(self: &std::sync::Arc<Self>, app: tauri::AppHandle, force: bool) {
+    pub fn check_for_updates(
+        self: &std::sync::Arc<Self>,
+        app: tauri::AppHandle,
+        force: bool,
+    ) -> bool {
         if self.update_running.swap(true, Ordering::AcqRel) {
-            return;
+            return false;
         }
+        self.set_update_status(
+            RuntimeUpdatePhase::Checking,
+            None,
+            Some("正在查询 npm 最新版本".to_string()),
+        );
         let manager = std::sync::Arc::clone(self);
         thread::spawn(move || {
             let result = manager.check_for_updates_inner(force);
@@ -309,20 +365,78 @@ impl RuntimeManager {
                     );
                     if let Some(window) = app.get_webview_window("main") {
                         let _ = window
-                            .set_title(&format!("DSH Desktop · dsh {version} 可在重启后使用"));
+                            .set_title(&format!("DSH Desktop · DSH {version} 可在重启后使用"));
                     }
+                    manager.set_update_status(
+                        RuntimeUpdatePhase::Ready,
+                        Some(version),
+                        Some("更新已就绪，重启后生效".to_string()),
+                    );
                 }
                 Ok(UpdateOutcome::Current) => {
-                    append_log(&manager.desktop_log(), "npm latest is already active")
+                    append_log(&manager.desktop_log(), "npm latest is already active");
+                    manager.set_update_status(
+                        RuntimeUpdatePhase::Current,
+                        None,
+                        Some("已是最新版本".to_string()),
+                    );
                 }
-                Ok(UpdateOutcome::Skipped) => {}
-                Err(error) => append_log(
-                    &manager.desktop_log(),
-                    &format!("update check failed: {error}"),
-                ),
+                Ok(UpdateOutcome::Skipped) => manager.restore_resting_update_status(),
+                Err(error) => {
+                    append_log(
+                        &manager.desktop_log(),
+                        &format!("update check failed: {error}"),
+                    );
+                    let target_version = manager.update_snapshot().target_version;
+                    manager.set_update_status(
+                        RuntimeUpdatePhase::Error,
+                        target_version,
+                        Some(error),
+                    );
+                }
             }
             manager.update_running.store(false, Ordering::Release);
         });
+        true
+    }
+
+    pub fn snapshot(&self) -> RuntimeSnapshot {
+        let (current_version, pending_version) = self
+            .state
+            .lock()
+            .map(|state| {
+                (
+                    state
+                        .active
+                        .clone()
+                        .unwrap_or_else(|| self.manifest.dsh_version.clone()),
+                    state.pending.clone(),
+                )
+            })
+            .unwrap_or_else(|_| (self.manifest.dsh_version.clone(), None));
+        let mut update = self.update_snapshot();
+        if let Some(pending) = pending_version.as_ref() {
+            if !matches!(
+                update.phase,
+                RuntimeUpdatePhase::Checking
+                    | RuntimeUpdatePhase::Installing
+                    | RuntimeUpdatePhase::Verifying
+                    | RuntimeUpdatePhase::Error
+            ) {
+                update = RuntimeUpdateSnapshot {
+                    phase: RuntimeUpdatePhase::Ready,
+                    target_version: Some(pending.clone()),
+                    detail: Some("更新已就绪，重启后生效".to_string()),
+                };
+            }
+        }
+        RuntimeSnapshot {
+            current_version,
+            pending_version,
+            node_version: self.manifest.node_version.clone(),
+            npm_version: self.manifest.npm_version.clone(),
+            update,
+        }
     }
 
     pub fn terminate(&self) {
@@ -428,11 +542,11 @@ impl RuntimeManager {
         let stdout = child
             .stdout
             .take()
-            .ok_or_else(|| "无法读取 dsh 标准输出".to_string())?;
+            .ok_or_else(|| "无法读取 DSH 标准输出".to_string())?;
         let stderr = child
             .stderr
             .take()
-            .ok_or_else(|| "无法读取 dsh 错误输出".to_string())?;
+            .ok_or_else(|| "无法读取 DSH 错误输出".to_string())?;
         let (ready_tx, ready_rx) = mpsc::channel();
         let output_log = self.runtime_log();
         let error_log = output_log.clone();
@@ -539,6 +653,11 @@ impl RuntimeManager {
             return Ok(UpdateOutcome::Current);
         }
 
+        self.set_update_status(
+            RuntimeUpdatePhase::Installing,
+            Some(latest.clone()),
+            Some(format!("正在安装 DSH {latest}")),
+        );
         let destination = self.paths.runtimes.join(&latest);
         if !runtime_cli(&destination).is_file() {
             self.install_and_verify(&latest, &destination)?;
@@ -605,6 +724,11 @@ impl RuntimeManager {
             return Err(format!("npm install 失败：{message}"));
         }
 
+        self.set_update_status(
+            RuntimeUpdatePhase::Verifying,
+            Some(version.to_string()),
+            Some("正在验证版本与启动能力".to_string()),
+        );
         let mut version_command = Command::new(&self.paths.node);
         configure_background_command(&mut version_command);
         let version_output = version_command
@@ -658,6 +782,49 @@ impl RuntimeManager {
 
     fn runtime_log(&self) -> PathBuf {
         self.paths.logs.join("dsh.log")
+    }
+
+    fn update_snapshot(&self) -> RuntimeUpdateSnapshot {
+        self.update_status
+            .lock()
+            .map(|status| status.clone())
+            .unwrap_or_else(|_| RuntimeUpdateSnapshot {
+                phase: RuntimeUpdatePhase::Error,
+                detail: Some("无法读取 DSH 更新状态".to_string()),
+                ..RuntimeUpdateSnapshot::default()
+            })
+    }
+
+    fn set_update_status(
+        &self,
+        phase: RuntimeUpdatePhase,
+        target_version: Option<String>,
+        detail: Option<String>,
+    ) {
+        if let Ok(mut status) = self.update_status.lock() {
+            *status = RuntimeUpdateSnapshot {
+                phase,
+                target_version,
+                detail,
+            };
+        }
+    }
+
+    fn restore_resting_update_status(&self) {
+        let pending = self
+            .state
+            .lock()
+            .ok()
+            .and_then(|state| state.pending.clone());
+        if let Some(version) = pending {
+            self.set_update_status(
+                RuntimeUpdatePhase::Ready,
+                Some(version),
+                Some("更新已就绪，重启后生效".to_string()),
+            );
+        } else {
+            self.set_update_status(RuntimeUpdatePhase::Idle, None, None);
+        }
     }
 }
 

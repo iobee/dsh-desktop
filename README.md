@@ -15,7 +15,7 @@ DSH Desktop 是一个独立、轻量的 macOS 与 Windows 外壳，让 [DeepSeek
    xattr -dr com.apple.quarantine "/Applications/DSH Desktop.app"
    ```
 
-3. 再正常打开应用。Node、npm 和首个可用 dsh 版本都已包含在 App 中，无需预装开发环境。
+3. 再正常打开应用。Node、npm 和首个可用 DSH 版本都已包含在 App 中，无需预装开发环境。
 
 也可以先尝试打开一次，然后到“系统设置 → 隐私与安全性”选择“仍要打开”。不要全局关闭 Gatekeeper。
 
@@ -23,26 +23,28 @@ DSH Desktop 是一个独立、轻量的 macOS 与 Windows 外壳，让 [DeepSeek
 
 1. 下载并运行 `DSH.Desktop_<版本>_x64-setup.exe`。安装只写入当前用户目录，不需要管理员权限。
 2. 当前构建没有 Authenticode 证书。若 SmartScreen 拦截，选择“更多信息”→“仍要运行”。
-3. Node、npm 和首个可用 dsh 版本都已包含在安装包中，无需预装开发环境。
+3. Node、npm 和首个可用 DSH 版本都已包含在安装包中，无需预装开发环境。
 
 ## 两条更新通道
 
-### dsh 运行时
+“DSH Desktop → 关于 DSH Desktop”显示桌面外壳与 DSH 运行时的版本、日志入口和 DeepSeek Harness GitHub 链接。“DSH Desktop → 检查更新…”在独立窗口中显示两条更新通道的状态与进度，并用一个按钮同时检查它们。
+
+### DSH 运行时
 
 - 启动只读取本机当前版本，不等待网络。
 - 界面打开 60 秒后，若距离上次成功检查已满 24 小时，后台读取 npm `dist-tags.latest`。
 - 新版本会安装到独立的版本目录，使用捆绑的 Node/npm 验证版本并完成一次启动冒烟测试。
 - 正在运行的版本不会被替换；新版本在下次启动时切换。
 - 若新版本启动失败，应用自动退回上一版本。网络或安装失败也不会影响当前版本。
-- “DSH Desktop → 检查 dsh 更新…”可手动检查；“重新启动”可应用已就绪的更新。
+- “DSH Desktop → 检查更新…”可手动检查；“重新启动”可应用已就绪的更新。
 
 ### DSH Desktop 外壳
 
 - 界面打开 120 秒后，若距离上次成功检查已满 24 小时，后台读取 GitHub Release 的 `latest.json`，不影响启动速度。
 - 发现新版本时由用户确认后再下载；Tauri 使用应用内置公钥强制验签，验签通过才会安装。
-- 安装完成后自动结束本机 dsh 子进程并重启应用。
+- 安装完成后自动结束本机 DSH 子进程并重启应用。
 - 检查或安装失败不会影响当前应用；失败后最早一小时重试。
-- “DSH Desktop → 检查 DSH Desktop 更新…”可随时手动检查。
+- “DSH Desktop → 检查更新…”可随时手动检查。
 
 Windows 与 macOS 使用同一份签名更新清单；应用只会下载与当前系统和架构匹配的更新包。
 

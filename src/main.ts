@@ -33,7 +33,7 @@ async function launch(): Promise<void> {
   try {
     const result = await invoke<StartupInfo>("bootstrap");
     window.clearTimeout(slowMessage);
-    status.textContent = `dsh ${result.dshVersion} 已就绪`;
+    status.textContent = `DSH ${result.dshVersion} 已就绪`;
     hint.textContent = "正在打开…";
     window.location.replace(result.url);
   } catch (reason) {

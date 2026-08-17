@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="/src/updates.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#101216" />
+    <title>检查更新</title>
+    <script type="module" src="/src/updates.ts" defer></script>
+  </head>
+  <body>
+    <main class="updates-shell">
+      <header class="updates-header" data-tauri-drag-region>
+        <h1>检查更新</h1>
+        <p>DSH Desktop 与 DSH 运行时独立更新</p>
+      </header>
+
+      <section class="updates-list" aria-label="版本更新状态">
+        <article class="update-item">
+          <div class="component-name">
+            <img
+              class="component-icon"
+              src="/src-tauri/icons/icon.png"
+              width="32"
+              height="32"
+              alt=""
+            />
+            <div>
+              <h2>DSH Desktop</h2>
+              <p>版本 <span id="desktop-version">—</span></p>
+            </div>
+          </div>
+          <div class="status-column">
+            <p class="status-line" aria-live="polite">
+              <img
+                class="status-indicator"
+                id="desktop-indicator"
+                src="/src/assets/status-active.png"
+                width="9"
+                height="9"
+                alt=""
+                hidden
+              />
+              <span class="status-text" id="desktop-status">正在读取状态</span>
+            </p>
+            <div class="progress-wrap" id="desktop-progress-wrap" hidden>
+              <progress id="desktop-progress" max="100" aria-label="DSH Desktop 更新进度"></progress>
+            </div>
+            <p class="status-detail" id="desktop-detail"></p>
+          </div>
+        </article>
+
+        <article class="update-item">
+          <div class="component-name">
+            <img
+              class="component-icon component-icon-runtime"
+              src="/src-tauri/icons/icon.png"
+              width="32"
+              height="32"
+              alt=""
+            />
+            <div>
+              <h2>DSH 运行时</h2>
+              <p>版本 <span id="dsh-version">—</span></p>
+            </div>
+          </div>
+          <div class="status-column">
+            <p class="status-line" aria-live="polite">
+              <img
+                class="status-indicator"
+                id="dsh-indicator"
+                src="/src/assets/status-current.png"
+                width="9"
+                height="9"
+                alt=""
+                hidden
+              />
+              <span class="status-text" id="dsh-status">正在读取状态</span>
+            </p>
+            <div class="progress-wrap" id="dsh-progress-wrap" hidden>
+              <progress id="dsh-progress" max="100" aria-label="DSH 更新进度"></progress>
+            </div>
+            <p class="status-detail" id="dsh-detail"></p>
+          </div>
+        </article>
+      </section>
+
+      <footer class="updates-footer">
+        <p>检查过程不会影响当前会话</p>
+        <button id="check-all" type="button">检查更新</button>
+      </footer>
+      <p class="toast" id="toast" aria-live="polite" hidden></p>
+    </main>
+  </body>
+</html>
