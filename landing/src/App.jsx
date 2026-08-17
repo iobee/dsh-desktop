@@ -12,9 +12,9 @@ const links = {
   github: "https://github.com/iobee/dsh-desktop",
   docs: "https://github.com/iobee/dsh-desktop#使用方式",
   releases: "https://github.com/iobee/dsh-desktop/releases",
-  mac: "https://github.com/iobee/dsh-desktop/releases/download/v0.1.4/DSH.Desktop_0.1.4_aarch64.dmg",
+  mac: "https://github.com/iobee/dsh-desktop/releases/download/v0.1.5/DSH.Desktop_0.1.5_aarch64.dmg",
   windows:
-    "https://github.com/iobee/dsh-desktop/releases/download/v0.1.4/DSH.Desktop_0.1.4_x64-setup.exe",
+    "https://github.com/iobee/dsh-desktop/releases/download/v0.1.5/DSH.Desktop_0.1.5_x64-setup.exe",
 };
 
 const assets = {
