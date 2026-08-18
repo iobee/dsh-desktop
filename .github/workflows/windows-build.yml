@@ -45,12 +45,6 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Prepare bundled Windows runtime
-        run: npm run prepare:runtime
-
-      - name: Smoke-test bundled dsh runtime
-        run: npm run runtime:smoke
-
       - name: Run Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml
 

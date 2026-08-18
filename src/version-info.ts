@@ -4,6 +4,7 @@ export type RuntimeUpdatePhase =
   | "idle"
   | "checking"
   | "current"
+  | "available"
   | "installing"
   | "verifying"
   | "ready"
@@ -68,7 +69,7 @@ export const previewInfo: VersionInfo = {
   },
 };
 
-/** Reads the current bundled and installed version state. */
+/** Reads the current system toolchain and installed version state. */
 export async function readVersionInfo(): Promise<VersionInfo> {
   return tauriRuntime ? invoke<VersionInfo>("get_about_info") : previewInfo;
 }

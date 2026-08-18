@@ -69,12 +69,6 @@
       "app"
     ],
     "createUpdaterArtifacts": true,
-    "resources": {
-      "resources/node": "node",
-      "resources/npm": "npm",
-      "resources/bootstrap-runtime": "bootstrap-runtime",
-      "resources/runtime-manifest.json": "runtime-manifest.json"
-    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

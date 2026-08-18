@@ -47,6 +47,15 @@ function runtimePresentation(update: RuntimeUpdateSnapshot): StatusPresentation 
       return status("正在检查", update.detail, "accent", true, false, null);
     case "current":
       return status("已是最新版本", update.detail, "success", false, false, null);
+    case "available":
+      return status(
+        target ? `${target} 可用` : "发现新版本",
+        update.detail,
+        "accent",
+        false,
+        false,
+        null,
+      );
     case "installing":
       return status(
         target ? `正在安装 ${target}` : "正在安装",
@@ -188,7 +197,7 @@ function render(info: VersionInfo): void {
   checkAll.disabled = desktop.busy || runtime.busy;
   checkAll.textContent = checkAll.disabled
     ? "正在更新…"
-    : info.desktopUpdate.phase === "available"
+    : info.desktopUpdate.phase === "available" || info.runtime.update.phase === "available"
       ? "继续更新"
       : "检查更新";
 }

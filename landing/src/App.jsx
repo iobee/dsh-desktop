@@ -25,18 +25,18 @@ const assets = {
 
 const benefits = [
   {
-    title: "开箱即用",
-    description: "内置 Node、npm 与可用 dsh 运行时，无需预装开发环境，下载即用。",
+    title: "沿用本机",
+    description: "复用现有 Node、npm 与 DSH；仅在缺失时准备用户级 DSH。",
     Icon: Cube,
   },
   {
     title: "安静更新",
-    description: "dsh 运行时与桌面外壳独立更新，后台检查不阻塞启动。",
+    description: "后台只检查新版本，确认后仍在 DSH 原安装位置更新。",
     Icon: ArrowsClockwise,
   },
   {
-    title: "失败可回退",
-    description: "新运行时若启动失败，自动回退到上一个可用版本，确保稳定。",
+    title: "安装前验证",
+    description: "新版本先在临时目录完成启动验证，失败时不主动切换当前版本。",
     Icon: ShieldCheck,
   },
 ];
@@ -99,7 +99,7 @@ export function App() {
           <p className="hero-copy">
             轻量的 macOS 与 Windows 桌面外壳。
             <br />
-            内置 Node、npm 与可用 dsh 运行时，无需预装开发环境。
+            沿用本机 Node、npm 与已有 DSH，缺失时自动准备用户级 DSH。
           </p>
 
           <div className="hero-actions" aria-label="下载 DSH Desktop">
@@ -158,7 +158,7 @@ export function App() {
             <img src={assets.icon} alt="" />
             <div>
               <strong>DSH Desktop</strong>
-              <p>独立、轻量、开箱即用的 DeepSeek Harness 桌面入口。</p>
+              <p>独立、轻量，并与终端共享 DSH 的桌面入口。</p>
             </div>
           </div>
 

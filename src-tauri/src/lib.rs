@@ -1,7 +1,9 @@
 mod app_updater;
-mod runtime;
+mod system_runtime;
 #[cfg(target_os = "macos")]
 mod window_chrome;
+
+use system_runtime as runtime;
 
 use std::sync::Arc;
 
@@ -131,9 +133,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
-            let resource_dir = app.path().resource_dir()?;
             let app_data_dir = app.path().app_data_dir()?;
-            let runtime = Arc::new(RuntimeManager::new(resource_dir, app_data_dir.clone())?);
+            let runtime = Arc::new(RuntimeManager::new(app_data_dir.clone())?);
             let updater = Arc::new(AppUpdater::new(app_data_dir)?);
             app.manage(AppState { runtime, updater });
             install_menu(app)?;

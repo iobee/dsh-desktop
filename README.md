@@ -15,7 +15,8 @@ DSH Desktop 是一个独立、轻量的 macOS 与 Windows 外壳，让 [DeepSeek
    xattr -dr com.apple.quarantine "/Applications/DSH Desktop.app"
    ```
 
-3. 再正常打开应用。Node、npm 和首个可用 DSH 版本都已包含在 App 中，无需预装开发环境。
+3. 安装 Node.js 22.19+（22 系列）或 24 及以上版本，并确认新终端中可以运行 `node` 与 `npm`。
+4. 再正常打开应用。应用会优先复用新终端 PATH 中已有的 `dsh`；未找到时才自动把最新版 DSH 安装到 `~/.local`，并把 `~/.local/bin` 加入当前终端的启动配置。
 
 也可以先尝试打开一次，然后到“系统设置 → 隐私与安全性”选择“仍要打开”。不要全局关闭 Gatekeeper。
 
@@ -23,7 +24,8 @@ DSH Desktop 是一个独立、轻量的 macOS 与 Windows 外壳，让 [DeepSeek
 
 1. 下载并运行 `DSH.Desktop_<版本>_x64-setup.exe`。安装只写入当前用户目录，不需要管理员权限。
 2. 当前构建没有 Authenticode 证书。若 SmartScreen 拦截，选择“更多信息”→“仍要运行”。
-3. Node、npm 和首个可用 DSH 版本都已包含在安装包中，无需预装开发环境。
+3. 安装 Node.js 22.19+（22 系列）或 24 及以上版本，并确认 `node` 与 `npm` 可以从终端运行。
+4. 应用会优先复用当前用户 PATH 中已有的 `dsh`；未找到时才自动把最新版 DSH 安装到当前用户的 npm 目录，并在需要时加入当前用户 PATH；不需要管理员权限。
 
 ## 两条更新通道
 
@@ -31,11 +33,15 @@ DSH Desktop 是一个独立、轻量的 macOS 与 Windows 外壳，让 [DeepSeek
 
 ### DSH 运行时
 
-- 启动只读取本机当前版本，不等待网络。
+- Desktop 复用用户现有的 Node/npm 与可用 DSH；只有找不到 `dsh` 时才准备最新版 DSH。
+- Desktop 不预装 pnpm。插件命令会直接使用终端 PATH 中已有的 pnpm，并在缺失时由 DSH 给出提示。
+- Desktop 管理的 DSH 在 macOS 安装到 `~/.local`，Windows 安装到当前用户的 `%APPDATA%\npm`；终端可直接使用 `dsh`。
+- 平时启动只读取本机当前版本，不等待网络。
 - 界面打开 60 秒后，若距离上次成功检查已满 24 小时，后台读取 npm `dist-tags.latest`。
-- 新版本会安装到独立的版本目录，使用捆绑的 Node/npm 验证版本并完成一次启动冒烟测试。
-- 正在运行的版本不会被替换；新版本在下次启动时切换。
-- 若新版本启动失败，应用自动退回上一版本。网络或安装失败也不会影响当前版本。
+- 后台检查只提示新版本，不会静默替换终端里的 `dsh`；手动确认后才更新。
+- 能确认当前 DSH 属于 npm 全局目录时，新版本会先在临时目录完成启动验证，再回到同一个安装位置更新。
+- 无法确认安装方式时只提示新版本，由用户使用原来的包管理器更新；Desktop 不会迁移或覆盖这类安装。
+- 原位置更新失败时会尝试重新安装原版本。
 - “DSH Desktop → 检查更新…”可手动检查；“重新启动”可应用已就绪的更新。
 
 ### DSH Desktop 外壳
@@ -48,22 +54,22 @@ DSH Desktop 是一个独立、轻量的 macOS 与 Windows 外壳，让 [DeepSeek
 
 Windows 与 macOS 使用同一份签名更新清单；应用只会下载与当前系统和架构匹配的更新包。
 
-Harness 的用户配置和会话仍由上游存放在 `~/.dsh`。外壳自己的版本缓存与日志位于 `~/Library/Application Support/com.iobee.dsh-desktop/`。
+Harness 的用户配置和会话仍由上游存放在 `~/.dsh`。Desktop 管理的 DSH 在 macOS 位于 `~/.local`，在 Windows 位于 `%APPDATA%\npm`；复用已有 DSH 时保留其原位置。外壳自己的更新状态、临时验证目录与日志位于 `~/Library/Application Support/com.iobee.dsh-desktop/`。
 
 Windows 上的外壳数据位于 `%APPDATA%\com.iobee.dsh-desktop\`。
 
 ## 本机构建
 
-macOS 要求：Apple Silicon Mac、Rust、Xcode Command Line Tools、用于执行准备脚本的 Node，以及更新签名私钥 `~/.tauri/dsh-desktop.key`。
+macOS 要求：Apple Silicon Mac、Rust、Xcode Command Line Tools、Node.js 22.19+（22 系列）或 24 及以上版本，以及更新签名私钥 `~/.tauri/dsh-desktop.key`。
 
 ```sh
 npm ci
 npm run desktop:build
 ```
 
-`prepare:runtime` 会按构建主机下载 Node 24.19.0 LTS 的官方 macOS arm64 或 Windows x64 发行包，校验 Node 官方 SHA-256，并捆绑 npm 11.19.0，用它安装当时的 `@deepseek-ai/dsh@latest`。macOS 构建会生成 DMG、`DSH Desktop.app.tar.gz` 更新包和对应的 `.sig` 签名，产物位于 `src-tauri/target/release/bundle/`。
+安装包不再捆绑 Node、npm 或 DSH。macOS 构建会生成轻量的 DMG、`DSH Desktop.app.tar.gz` 更新包和对应的 `.sig` 签名，产物位于 `src-tauri/target/release/bundle/`。
 
-Windows 安装包由 `.github/workflows/windows-build.yml` 在 GitHub 的 Windows runner 上原生构建。工作流会先启动一次捆绑的 dsh 做冒烟测试，再生成当前用户安装模式的 NSIS `-setup.exe`，并作为 Actions artifact 保存 14 天。
+Windows 安装包由 `.github/workflows/windows-build.yml` 在 GitHub 的 Windows runner 上原生构建。工作流运行 Rust 测试后生成当前用户安装模式的 NSIS `-setup.exe`，并作为 Actions artifact 保存 14 天。
 
 ## 发布新版本
 
@@ -101,4 +107,4 @@ npm run release:publish -- --dry-run --windows-installer "dist-windows/DSH Deskt
 
 ## 许可与来源
 
-本外壳使用 MIT License。DeepSeek Harness 及其依赖保留各自的许可与版权；上游 npm 包被原样安装为运行时依赖。
+本外壳使用 MIT License。DeepSeek Harness 及其依赖保留各自的许可与版权；本机没有可用 DSH 时，上游 npm 包会安装到用户级目录。

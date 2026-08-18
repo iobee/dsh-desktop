@@ -20,14 +20,14 @@ function textOf(reason: unknown): string {
 async function launch(): Promise<void> {
   if (!status || !hint || !spinner || !error || !actions) return;
 
-  status.textContent = "正在启动本机服务…";
-  hint.textContent = "直接使用已安装版本；更新检查不会阻塞启动。";
+  status.textContent = "正在检查 DSH 环境…";
+  hint.textContent = "正在复用本机 DSH；未安装时会自动准备。";
   spinner.hidden = false;
   error.hidden = true;
   actions.hidden = true;
 
   const slowMessage = window.setTimeout(() => {
-    hint.textContent = "首次启动可能需要几秒，之后会直接使用本机缓存。";
+    hint.textContent = "正在使用本机 Node/npm 准备 DSH，所需时间取决于网络。";
   }, 4_000);
 
   try {
@@ -39,7 +39,7 @@ async function launch(): Promise<void> {
   } catch (reason) {
     window.clearTimeout(slowMessage);
     status.textContent = "启动失败";
-    hint.textContent = "当前版本没有被替换，可以查看日志后重试。";
+    hint.textContent = "请确认 Node.js 可在新终端中运行，也可以查看日志后重试。";
     spinner.hidden = true;
     error.textContent = textOf(reason);
     error.hidden = false;
