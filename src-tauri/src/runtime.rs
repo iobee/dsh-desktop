@@ -690,13 +690,14 @@ impl RuntimeManager {
     ) -> Result<(ManagedProcess, String), String> {
         let cli = runtime_cli(runtime_path);
         let mut command = self.node_entry_command(&cli, &user_home())?;
+        let child_path = runtime_path_env(&self.paths.node, runtime_path)?;
         command
             .args(["web", "--port", "0"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .env("NODE_ENV", "production")
             .env("DSH_DESKTOP", "1")
-            .env("PATH", runtime_path_env(&self.paths.node, runtime_path));
+            .env("PATH", child_path);
         if let Some(home) = dsh_home {
             command.env("DSH_HOME", home);
         }
@@ -788,7 +789,8 @@ impl RuntimeManager {
             .arg(launcher_name)
             .current_dir(launcher_dir)
             .env(NODE_ENTRY_ENV, node_compatible_path(entry))
-            .env(NODE_CWD_ENV, node_compatible_path(cwd));
+            .env(NODE_CWD_ENV, node_compatible_path(cwd))
+            .env("PATH", node_path_env(&self.paths.node)?);
         Ok(command)
     }
 
@@ -1100,20 +1102,39 @@ fn runtime_cli(runtime: &Path) -> PathBuf {
     runtime.join("node_modules/@deepseek-ai/dsh/lib/bin.js")
 }
 
-fn runtime_path_env(node: &Path, runtime: &Path) -> std::ffi::OsString {
-    let mut paths = vec![
+fn node_path_env(node: &Path) -> Result<std::ffi::OsString, String> {
+    prefixed_path_env([node
+        .parent()
+        .ok_or_else(|| format!("捆绑的 Node 路径没有父目录：{}", node.display()))?
+        .to_path_buf()])
+}
+
+fn runtime_path_env(node: &Path, runtime: &Path) -> Result<std::ffi::OsString, String> {
+    prefixed_path_env([
         node.parent()
-            .unwrap_or_else(|| Path::new("."))
+            .ok_or_else(|| format!("捆绑的 Node 路径没有父目录：{}", node.display()))?
             .to_path_buf(),
         runtime.join("node_modules/.bin"),
-    ];
-    if let Some(existing) = env::var_os("PATH") {
-        paths.extend(env::split_paths(&existing));
+    ])
+}
+
+fn prefixed_path_env(
+    prefixes: impl IntoIterator<Item = PathBuf>,
+) -> Result<std::ffi::OsString, String> {
+    prefixed_path_env_with(prefixes, env::var_os("PATH"))
+}
+
+fn prefixed_path_env_with(
+    prefixes: impl IntoIterator<Item = PathBuf>,
+    inherited: Option<std::ffi::OsString>,
+) -> Result<std::ffi::OsString, String> {
+    let mut path = env::join_paths(prefixes)
+        .map_err(|error| format!("无法为捆绑的 Node 构造 PATH：{error}"))?;
+    if let Some(existing) = inherited.filter(|value| !value.is_empty()) {
+        path.push(if cfg!(windows) { ";" } else { ":" });
+        path.push(existing);
     }
-    env::join_paths(paths)
-        .ok()
-        .or_else(|| env::var_os("PATH"))
-        .unwrap_or_default()
+    Ok(path)
 }
 
 fn user_home() -> PathBuf {
@@ -1474,6 +1495,44 @@ mod tests {
         assert_eq!(node_platform_name("windows"), "win32");
         assert_eq!(node_arch_name("x86_64"), "x64");
         assert_eq!(node_platform_name("linux"), "linux");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn exposes_bundled_node_to_lifecycle_scripts_without_a_system_node() {
+        let resources = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources");
+        let node = resources.join("node/bin/node");
+        assert!(node.is_file(), "prepared bundled Node is missing");
+        let empty_host_path = env::temp_dir().join(format!(
+            "dsh-desktop-empty-path-{}-{}",
+            std::process::id(),
+            unix_time()
+        ));
+        fs::create_dir_all(&empty_host_path).expect("create empty host PATH directory");
+        let inherited = env::join_paths([&empty_host_path]).expect("construct empty host PATH");
+        let path = prefixed_path_env_with(
+            [node.parent().expect("bundled Node parent").to_path_buf()],
+            Some(inherited),
+        )
+        .expect("construct lifecycle PATH");
+
+        let output = Command::new("/bin/sh")
+            .args(["-c", "node -p process.execPath"])
+            .env("PATH", path)
+            .output()
+            .expect("run lifecycle shell");
+        let _ = fs::remove_dir_all(&empty_host_path);
+
+        assert!(
+            output.status.success(),
+            "lifecycle shell failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let reported = PathBuf::from(String::from_utf8_lossy(&output.stdout).trim());
+        assert_eq!(
+            fs::canonicalize(reported).expect("canonicalize reported Node"),
+            fs::canonicalize(node).expect("canonicalize bundled Node")
+        );
     }
 
     #[test]
