@@ -6,6 +6,7 @@
   "permissions": [
     "allow-get-about-info",
     "allow-check-dsh-update",
+    "allow-set-dsh-update-channel",
     "allow-check-app-update",
     "core:default",
     "core:window:allow-start-dragging"

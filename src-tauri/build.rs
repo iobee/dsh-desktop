@@ -4,6 +4,7 @@ fn main() {
         "open_logs",
         "get_about_info",
         "check_dsh_update",
+        "set_dsh_update_channel",
         "check_app_update",
         "set_traffic_lights_visible",
     ]);

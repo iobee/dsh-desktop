@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-dsh-update-channel"
+description = "Enables the set_dsh_update_channel command without any pre-configured scope."
+commands.allow = ["set_dsh_update_channel"]
+
+[[permission]]
+identifier = "deny-set-dsh-update-channel"
+description = "Denies the set_dsh_update_channel command without any pre-configured scope."
+commands.deny = ["set_dsh_update_channel"]
