@@ -14,6 +14,7 @@ When implementing from a selected generated mock, treat that image as the source
 - Keep the product screenshot lossless and Retina-ready: provide an image candidate at least twice the maximum rendered width, and do not reintroduce a heavily compressed JPEG.
 - Keep product claims grounded in the parent `dsh-desktop` repository. Do not copy the mock's incorrect DeepSeek copyright attribution.
 - Present the private bundled runtime as the default: startup does not require system Node, DSH checks npm every 12 hours, and terminal exposure is an explicit opt-in that never overwrites an existing `dsh`.
+- Lead product messaging with three promises: the shell is minimal and lightweight, it neither forks nor modifies DSH code, and it follows upstream npm releases through `latest` or the optional `next` channel. Distinguish immediate manual checks from the 12-hour automatic cadence instead of promising instantaneous background updates.
 
 The canonical public deployment is GitHub Pages at `https://iobee.github.io/dsh-desktop/`. Keep public asset URLs compatible with both the Pages subpath and local root previews through Vite's `BASE_URL`.
 

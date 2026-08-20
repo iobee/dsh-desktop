@@ -22,19 +22,19 @@ const assets = {
 
 const benefits = [
   {
-    title: "开箱即用",
-    description: "内置 Node、npm 与可用 dsh 运行时，无需预装开发环境，下载即用。",
+    title: "极简轻量",
+    description: "内置必要运行环境，下载即可打开；桌面壳只负责启动、更新和可选终端入口。",
     Icon: Cube,
   },
   {
-    title: "跟随 npm",
-    description: "每 12 小时后台检查一次，也可随时手动检查；启动不等待网络。",
-    Icon: ArrowsClockwise,
+    title: "上游原样",
+    description: "不 Fork、不修改 DSH 代码；直接运行上游发布的 @deepseek-ai/dsh npm 包。",
+    Icon: ShieldCheck,
   },
   {
-    title: "终端不冲突",
-    description: "默认不改 PATH；可选安装命令，已有 dsh 时自动使用 dsh-desktop。",
-    Icon: ShieldCheck,
+    title: "紧跟发版",
+    description: "默认跟随 latest，也可加入 Beta 跟随 next；随时手动检查，并每 12 小时自动检查。",
+    Icon: ArrowsClockwise,
   },
 ];
 
@@ -92,9 +92,9 @@ export function App() {
             <span>像普通应用一样打开</span>
           </h1>
           <p className="hero-copy">
-            轻量的 macOS 桌面外壳。
+            极简、轻量，让 DSH 成为随手可用的桌面应用。
             <br />
-            内置 Node、npm 与可用 dsh 运行时，无需预装开发环境。
+            不 Fork、不修改 DSH 代码，跟随 npm 发版，及时用上最新版。
           </p>
 
           <div className="hero-actions" aria-label="下载 DSH Desktop">
@@ -150,7 +150,7 @@ export function App() {
             <img src={assets.icon} alt="" />
             <div>
               <strong>DSH Desktop</strong>
-              <p>独立、轻量、开箱即用的 DeepSeek Harness 桌面入口。</p>
+              <p>极简轻量、紧跟上游的 DeepSeek Harness 桌面入口。</p>
             </div>
           </div>
 
