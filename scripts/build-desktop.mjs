@@ -22,6 +22,11 @@ if (!environment.TAURI_SIGNING_PRIVATE_KEY) {
 }
 environment.TAURI_SIGNING_PRIVATE_KEY_PASSWORD ??= "";
 
+execFileSync("npm", ["run", "prepare:runtime"], {
+  cwd: root,
+  env: environment,
+  stdio: "inherit",
+});
 execFileSync("npm", ["run", "tauri", "--", "build"], {
   cwd: root,
   env: environment,

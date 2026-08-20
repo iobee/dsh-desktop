@@ -45,11 +45,54 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Prepare bundled Windows runtime
+        run: npm run prepare:runtime
+
+      - name: Smoke-test bundled dsh runtime
+        run: npm run runtime:smoke
+
       - name: Run Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
       - name: Build unsigned Windows installer
         run: npm run tauri -- build
+
+      - name: Smoke-test installed Windows app
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem src-tauri/target/release/bundle/nsis/*-setup.exe |
+            Select-Object -First 1
+          if (-not $installer) {
+            throw "Windows installer was not produced"
+          }
+
+          $installDir = Join-Path $env:RUNNER_TEMP "dsh-desktop-installed"
+          $install = Start-Process -FilePath $installer.FullName `
+            -ArgumentList "/S", "/D=$installDir" `
+            -PassThru
+          if (-not $install.WaitForExit(120000)) {
+            $install.Kill($true)
+            throw "Windows installer did not finish within 120 seconds"
+          }
+          if ($install.ExitCode -ne 0) {
+            throw "Windows installer failed with exit code $($install.ExitCode)"
+          }
+
+          $application = Get-ChildItem $installDir -Filter "DSH Desktop.exe" -Recurse |
+            Select-Object -First 1
+          if (-not $application) {
+            throw "Installed DSH Desktop executable was not found"
+          }
+
+          $env:DSH_DESKTOP_RUNTIME_SMOKE = "1"
+          $smoke = Start-Process -FilePath $application.FullName -PassThru
+          if (-not $smoke.WaitForExit(60000)) {
+            $smoke.Kill($true)
+            throw "Installed runtime smoke test did not finish within 60 seconds"
+          }
+          if ($smoke.ExitCode -ne 0) {
+            throw "Installed runtime smoke test failed with exit code $($smoke.ExitCode)"
+          }
 
       - name: Record installer checksum
         shell: pwsh

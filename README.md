@@ -15,8 +15,7 @@ DSH Desktop 是一个独立、轻量的 macOS 与 Windows 外壳，让 [DeepSeek
    xattr -dr com.apple.quarantine "/Applications/DSH Desktop.app"
    ```
 
-3. 安装 Node.js 22.19+（22 系列）或 24 及以上版本，并确认新终端中可以运行 `node` 与 `npm`。
-4. 再正常打开应用。应用会优先复用新终端 PATH 中已有的 `dsh`；未找到时才自动把最新版 DSH 安装到 `~/.local`，并把 `~/.local/bin` 加入当前终端的启动配置。
+3. 再正常打开应用。Node、npm 和首个可用 DSH 版本都已包含在 App 中，无需预装开发环境。
 
 也可以先尝试打开一次，然后到“系统设置 → 隐私与安全性”选择“仍要打开”。不要全局关闭 Gatekeeper。
 
@@ -24,8 +23,7 @@ DSH Desktop 是一个独立、轻量的 macOS 与 Windows 外壳，让 [DeepSeek
 
 1. 下载并运行 `DSH.Desktop_<版本>_x64-setup.exe`。安装只写入当前用户目录，不需要管理员权限。
 2. 当前构建没有 Authenticode 证书。若 SmartScreen 拦截，选择“更多信息”→“仍要运行”。
-3. 安装 Node.js 22.19+（22 系列）或 24 及以上版本，并确认 `node` 与 `npm` 可以从终端运行。
-4. 应用会优先复用当前用户 PATH 中已有的 `dsh`；未找到时才自动把最新版 DSH 安装到当前用户的 npm 目录，并在需要时加入当前用户 PATH；不需要管理员权限。
+3. Node、npm 和首个可用 DSH 版本都已包含在安装包中，无需预装开发环境。
 
 ## 两条更新通道
 
@@ -33,16 +31,15 @@ DSH Desktop 是一个独立、轻量的 macOS 与 Windows 外壳，让 [DeepSeek
 
 ### DSH 运行时
 
-- Desktop 复用用户现有的 Node/npm 与可用 DSH；只有找不到 `dsh` 时才准备最新版 DSH。
-- Desktop 不预装 pnpm。插件命令会直接使用终端 PATH 中已有的 pnpm，并在缺失时由 DSH 给出提示。
-- Desktop 管理的 DSH 在 macOS 安装到 `~/.local`，Windows 安装到当前用户的 `%APPDATA%\npm`；终端可直接使用 `dsh`。
-- 平时启动只读取本机当前版本，不等待网络。
-- 界面打开 60 秒后，若距离上次成功检查已满 24 小时，后台读取 npm `dist-tags.latest`。
-- 后台检查只提示新版本，不会静默替换终端里的 `dsh`；手动确认后才更新。
-- 能确认当前 DSH 属于 npm 全局目录时，新版本会先在临时目录完成启动验证，再回到同一个安装位置更新。
-- 无法确认安装方式时只提示新版本，由用户使用原来的包管理器更新；Desktop 不会迁移或覆盖这类安装。
-- 原位置更新失败时会尝试重新安装原版本。
-- “DSH Desktop → 检查更新…”可手动检查；“重新启动”可应用已就绪的更新。
+- 启动只读取本机当前版本，不等待网络。
+- 默认跟随 npm `dist-tags.latest`；“检查更新”窗口可开启“加入 DSH Beta”，改为跟随预发布的 `dist-tags.next`。
+- 切换通道后立即检查一次；此后的手动检查与每 12 小时后台检查都使用所选通道。
+- 退出 Beta 会取消尚未应用的 Beta 更新，但不会把当前正在运行的较新 DSH 自动降级；Desktop 会等 `latest` 追平后再更新。
+- 界面打开 60 秒后开始首次后台检查；应用持续运行时也会按该周期继续检查。
+- 新版本会安装到独立的版本目录，使用捆绑的 Node/npm 验证版本并完成一次启动冒烟测试。
+- 正在运行的版本不会被替换；新版本在下次启动时切换。
+- 若新版本启动失败，应用自动退回上一版本。网络或安装失败也不会影响当前版本。
+- “DSH Desktop → 检查更新…”可随时强制检查，不受 12 小时间隔或失败重试间隔限制；“重新启动”可应用已就绪的更新。
 
 ### DSH Desktop 外壳
 
@@ -54,22 +51,32 @@ DSH Desktop 是一个独立、轻量的 macOS 与 Windows 外壳，让 [DeepSeek
 
 Windows 与 macOS 使用同一份签名更新清单；应用只会下载与当前系统和架构匹配的更新包。
 
-Harness 的用户配置和会话仍由上游存放在 `~/.dsh`。Desktop 管理的 DSH 在 macOS 位于 `~/.local`，在 Windows 位于 `%APPDATA%\npm`；复用已有 DSH 时保留其原位置。外壳自己的更新状态、临时验证目录与日志位于 `~/Library/Application Support/com.iobee.dsh-desktop/`。
+## 可选终端命令
+
+默认情况下，DSH Desktop 不修改用户 PATH，也不影响终端里已有的 `dsh`。需要在终端复用桌面应用管理的同一套 DSH 时，可选择“DSH Desktop → 安装终端命令…”：
+
+- 若终端中没有 `dsh`，安装名为 `dsh` 的轻量启动命令。
+- 若检测到已有 `dsh`，改为安装 `dsh-desktop`，不覆盖、不移动，也不改变原命令的优先级。
+- macOS 会同时配置 zsh 的 `.zshrc` 与 fish 的 `conf.d/dsh-desktop.fish`；旧版本写入 `.zprofile` 的受管片段会在重新安装时迁移。
+- 该命令始终读取 Desktop 当前生效的隔离运行时，因此会跟随应用从 npm 安装并验证过的 DSH 更新。
+- “移除终端命令…”只删除 DSH Desktop 自己创建的命令和 PATH 配置。
+
+Harness 的用户配置和会话仍由上游存放在 `~/.dsh`。外壳自己的版本缓存、可选终端启动器与日志位于 `~/Library/Application Support/com.iobee.dsh-desktop/`。
 
 Windows 上的外壳数据位于 `%APPDATA%\com.iobee.dsh-desktop\`。
 
 ## 本机构建
 
-macOS 要求：Apple Silicon Mac、Rust、Xcode Command Line Tools、Node.js 22.19+（22 系列）或 24 及以上版本，以及更新签名私钥 `~/.tauri/dsh-desktop.key`。
+macOS 要求：Apple Silicon Mac、Rust、Xcode Command Line Tools、用于执行准备脚本的 Node，以及更新签名私钥 `~/.tauri/dsh-desktop.key`。
 
 ```sh
 npm ci
 npm run desktop:build
 ```
 
-安装包不再捆绑 Node、npm 或 DSH。macOS 构建会生成轻量的 DMG、`DSH Desktop.app.tar.gz` 更新包和对应的 `.sig` 签名，产物位于 `src-tauri/target/release/bundle/`。
+`prepare:runtime` 会按构建主机下载 Node 24.19.0 LTS 的官方 macOS arm64 或 Windows x64 发行包，校验 Node 官方 SHA-256，并捆绑 npm 11.19.0，用它安装当时的 `@deepseek-ai/dsh@latest`。macOS 构建会生成 DMG、`DSH Desktop.app.tar.gz` 更新包和对应的 `.sig` 签名，产物位于 `src-tauri/target/release/bundle/`。
 
-Windows 安装包由 `.github/workflows/windows-build.yml` 在 GitHub 的 Windows runner 上原生构建。工作流运行 Rust 测试后生成当前用户安装模式的 NSIS `-setup.exe`，并作为 Actions artifact 保存 14 天。
+Windows 安装包由 `.github/workflows/windows-build.yml` 在 GitHub 的 Windows runner 上原生构建。工作流会先验证源码资源中的运行时，再静默安装生成的 NSIS 包，并从真实安装目录启动一次捆绑 DSH；只有这两层冒烟测试都通过才保存 Actions artifact。
 
 ## 发布新版本
 
@@ -107,4 +114,4 @@ npm run release:publish -- --dry-run --windows-installer "dist-windows/DSH Deskt
 
 ## 许可与来源
 
-本外壳使用 MIT License。DeepSeek Harness 及其依赖保留各自的许可与版权；本机没有可用 DSH 时，上游 npm 包会安装到用户级目录。
+本外壳使用 MIT License。DeepSeek Harness 及其依赖保留各自的许可与版权；上游 npm 包被原样安装为运行时依赖。

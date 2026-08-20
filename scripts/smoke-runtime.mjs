@@ -9,7 +9,9 @@ import { fileURLToPath } from "node:url";
 const READY_PREFIX = "dsh web: http://127.0.0.1:";
 const TIMEOUT_MS = 30_000;
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const resources = join(root, "src-tauri", "resources");
+const resources = process.env.DSH_DESKTOP_RESOURCES
+  ? resolve(process.env.DSH_DESKTOP_RESOURCES)
+  : join(root, "src-tauri", "resources");
 const manifest = JSON.parse(await readFile(join(resources, "runtime-manifest.json"), "utf8"));
 const hostPlatform = platform();
 const hostArch = arch();

@@ -22,6 +22,8 @@ use semver::Version;
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
 
+use crate::terminal_command::{TerminalCommandInstall, TerminalCommandManager};
+
 const PACKAGE_NAME: &str = "@deepseek-ai/dsh";
 const INSTALL_SCRIPT_PACKAGES: [&str; 5] = [
     "@deepseek-ai/dsh-subprocess-local",
@@ -33,8 +35,10 @@ const INSTALL_SCRIPT_PACKAGES: [&str; 5] = [
 const READY_PREFIX: &str = "dsh web: ";
 const START_TIMEOUT: Duration = Duration::from_secs(30);
 const UPDATE_DELAY: Duration = Duration::from_secs(60);
-const UPDATE_INTERVAL_SECS: u64 = 24 * 60 * 60;
+const UPDATE_INTERVAL_SECS: u64 = 12 * 60 * 60;
 const FAILED_RETRY_SECS: u64 = 60 * 60;
+const NODE_ENTRY_ENV: &str = "DSH_DESKTOP_NODE_ENTRY";
+const NODE_CWD_ENV: &str = "DSH_DESKTOP_NODE_CWD";
 const ERROR_TAIL_LINES: usize = 20;
 const ERROR_TAIL_LINE_CHARS: usize = 1_000;
 #[cfg(windows)]
@@ -59,6 +63,23 @@ struct BundledManifest {
     arch: String,
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RuntimeUpdateChannel {
+    #[default]
+    Latest,
+    Next,
+}
+
+impl RuntimeUpdateChannel {
+    fn dist_tag(self) -> &'static str {
+        match self {
+            Self::Latest => "latest",
+            Self::Next => "next",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RuntimeState {
@@ -67,6 +88,8 @@ struct RuntimeState {
     pending: Option<String>,
     last_update_attempt: Option<u64>,
     last_successful_check: Option<u64>,
+    #[serde(default)]
+    update_channel: RuntimeUpdateChannel,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
@@ -76,6 +99,7 @@ pub enum RuntimeUpdatePhase {
     Idle,
     Checking,
     Current,
+    Ahead,
     Installing,
     Verifying,
     Ready,
@@ -97,11 +121,13 @@ pub struct RuntimeSnapshot {
     pub pending_version: Option<String>,
     pub node_version: String,
     pub npm_version: String,
+    pub update_channel: RuntimeUpdateChannel,
     pub update: RuntimeUpdateSnapshot,
 }
 
 struct Paths {
     node: PathBuf,
+    node_launcher: PathBuf,
     npm_cli: PathBuf,
     bundled_runtime: PathBuf,
     runtimes: PathBuf,
@@ -129,6 +155,7 @@ impl ManagedProcess {
 pub struct RuntimeManager {
     paths: Paths,
     manifest: BundledManifest,
+    terminal_command: TerminalCommandManager,
     state: Mutex<RuntimeState>,
     process: Mutex<Option<ManagedProcess>>,
     startup: Mutex<Option<StartupInfo>>,
@@ -174,6 +201,7 @@ impl RuntimeManager {
 
         let paths = Paths {
             node: resolve_resource(&resource_dir, bundled_node_resource()),
+            node_launcher: resolve_resource(&resource_dir, "node-launcher.mjs"),
             npm_cli: resolve_resource(&resource_dir, "npm/node_modules/npm/bin/npm-cli.js"),
             bundled_runtime: resolve_resource(&resource_dir, "bootstrap-runtime"),
             runtimes: data_root.join("versions"),
@@ -182,7 +210,12 @@ impl RuntimeManager {
             npm_cache: data_root.join("npm-cache"),
             smoke: data_root.join("smoke"),
         };
-        for required in [&paths.node, &paths.npm_cli, &paths.bundled_runtime] {
+        for required in [
+            &paths.node,
+            &paths.node_launcher,
+            &paths.npm_cli,
+            &paths.bundled_runtime,
+        ] {
             if !required.exists() {
                 return Err(format!(
                     "bundled runtime resource is missing: {}",
@@ -193,6 +226,14 @@ impl RuntimeManager {
         }
 
         let state = read_state(&paths.state).unwrap_or_default();
+        let terminal_command = TerminalCommandManager::new(
+            &app_data_dir,
+            paths.node.clone(),
+            paths.bundled_runtime.clone(),
+            paths.runtimes.clone(),
+            paths.state.clone(),
+        );
+        terminal_command.refresh_if_installed();
         let update_status = state
             .pending
             .as_ref()
@@ -212,6 +253,7 @@ impl RuntimeManager {
         Ok(Self {
             paths,
             manifest,
+            terminal_command,
             state: Mutex::new(state),
             process: Mutex::new(None),
             startup: Mutex::new(None),
@@ -334,9 +376,14 @@ impl RuntimeManager {
         }
         let manager = std::sync::Arc::clone(self);
         thread::spawn(move || {
-            thread::sleep(UPDATE_DELAY);
-            if !manager.shutting_down.load(Ordering::Acquire) {
-                manager.check_for_updates(app, false);
+            if !manager.wait_for_update_tick(UPDATE_DELAY) {
+                return;
+            }
+            loop {
+                manager.check_for_updates(app.clone(), false);
+                if !manager.wait_for_update_tick(Duration::from_secs(FAILED_RETRY_SECS)) {
+                    return;
+                }
             }
         });
     }
@@ -346,17 +393,26 @@ impl RuntimeManager {
         app: tauri::AppHandle,
         force: bool,
     ) -> bool {
+        let channel = match self.state.lock() {
+            Ok(state) => {
+                if !force && !update_check_is_due(&state, unix_time(), force) {
+                    return false;
+                }
+                state.update_channel
+            }
+            Err(_) => return false,
+        };
         if self.update_running.swap(true, Ordering::AcqRel) {
             return false;
         }
         self.set_update_status(
             RuntimeUpdatePhase::Checking,
             None,
-            Some("正在查询 npm 最新版本".to_string()),
+            Some(format!("正在查询 npm {} 通道", channel.dist_tag())),
         );
         let manager = std::sync::Arc::clone(self);
         thread::spawn(move || {
-            let result = manager.check_for_updates_inner(force);
+            let result = manager.check_for_updates_inner(force, channel);
             match result {
                 Ok(UpdateOutcome::Staged(version)) => {
                     append_log(
@@ -374,11 +430,34 @@ impl RuntimeManager {
                     );
                 }
                 Ok(UpdateOutcome::Current) => {
-                    append_log(&manager.desktop_log(), "npm latest is already active");
+                    append_log(
+                        &manager.desktop_log(),
+                        &format!("npm {} is already active", channel.dist_tag()),
+                    );
                     manager.set_update_status(
                         RuntimeUpdatePhase::Current,
                         None,
-                        Some("已是最新版本".to_string()),
+                        Some(match channel {
+                            RuntimeUpdateChannel::Latest => "已是 npm latest 当前版本".to_string(),
+                            RuntimeUpdateChannel::Next => "已是 DSH Beta 当前版本".to_string(),
+                        }),
+                    );
+                }
+                Ok(UpdateOutcome::Ahead { active, target }) => {
+                    append_log(
+                        &manager.desktop_log(),
+                        &format!(
+                            "active dsh {active} is ahead of npm {} ({target}); keeping active runtime",
+                            channel.dist_tag()
+                        ),
+                    );
+                    manager.set_update_status(
+                        RuntimeUpdatePhase::Ahead,
+                        Some(target.clone()),
+                        Some(format!(
+                            "当前 DSH {active} 高于 npm {} 的 {target}，不会自动降级",
+                            channel.dist_tag()
+                        )),
                     );
                 }
                 Ok(UpdateOutcome::Skipped) => manager.restore_resting_update_status(),
@@ -400,8 +479,40 @@ impl RuntimeManager {
         true
     }
 
+    pub fn set_update_channel(&self, channel: RuntimeUpdateChannel) -> Result<bool, String> {
+        if self.update_running.load(Ordering::Acquire) {
+            return Err("DSH 更新正在进行，请完成后再切换通道。".to_string());
+        }
+        let changed = {
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| "版本状态锁已损坏".to_string())?;
+            let mut updated = state.clone();
+            if !select_update_channel(&mut updated, channel) {
+                return Ok(false);
+            }
+            self.save_state(&updated)?;
+            *state = updated;
+            true
+        };
+        append_log(
+            &self.desktop_log(),
+            &format!(
+                "runtime update channel changed to npm {}",
+                channel.dist_tag()
+            ),
+        );
+        self.set_update_status(
+            RuntimeUpdatePhase::Idle,
+            None,
+            Some(format!("已切换到 npm {} 通道", channel.dist_tag())),
+        );
+        Ok(changed)
+    }
+
     pub fn snapshot(&self) -> RuntimeSnapshot {
-        let (current_version, pending_version) = self
+        let (current_version, pending_version, update_channel) = self
             .state
             .lock()
             .map(|state| {
@@ -411,9 +522,16 @@ impl RuntimeManager {
                         .clone()
                         .unwrap_or_else(|| self.manifest.dsh_version.clone()),
                     state.pending.clone(),
+                    state.update_channel,
                 )
             })
-            .unwrap_or_else(|_| (self.manifest.dsh_version.clone(), None));
+            .unwrap_or_else(|_| {
+                (
+                    self.manifest.dsh_version.clone(),
+                    None,
+                    RuntimeUpdateChannel::default(),
+                )
+            });
         let mut update = self.update_snapshot();
         if let Some(pending) = pending_version.as_ref() {
             if !matches!(
@@ -421,6 +539,7 @@ impl RuntimeManager {
                 RuntimeUpdatePhase::Checking
                     | RuntimeUpdatePhase::Installing
                     | RuntimeUpdatePhase::Verifying
+                    | RuntimeUpdatePhase::Ahead
                     | RuntimeUpdatePhase::Error
             ) {
                 update = RuntimeUpdateSnapshot {
@@ -435,6 +554,7 @@ impl RuntimeManager {
             pending_version,
             node_version: self.manifest.node_version.clone(),
             npm_version: self.manifest.npm_version.clone(),
+            update_channel,
             update,
         }
     }
@@ -459,6 +579,56 @@ impl RuntimeManager {
             .spawn()
             .map_err(|error| format!("无法打开日志目录：{error}"))?;
         Ok(())
+    }
+
+    pub fn install_terminal_command(&self) -> Result<TerminalCommandInstall, String> {
+        self.terminal_command.install()
+    }
+
+    pub fn uninstall_terminal_command(&self) -> Result<String, String> {
+        self.terminal_command.uninstall()
+    }
+
+    pub fn smoke_bundled_runtime(&self) -> Result<StartupInfo, String> {
+        let smoke_home =
+            self.paths
+                .smoke
+                .join(format!("packaged-{}-{}", std::process::id(), unix_time()));
+        fs::create_dir_all(&smoke_home)
+            .map_err(|error| format!("无法创建安装包冒烟测试目录：{error}"))?;
+        let result = self.launch_at(
+            &self.manifest.dsh_version,
+            &self.paths.bundled_runtime,
+            Some(&smoke_home),
+            START_TIMEOUT,
+        );
+        let result = match result {
+            Ok((mut process, url)) => {
+                process.terminate();
+                Ok(StartupInfo {
+                    url,
+                    dsh_version: self.manifest.dsh_version.clone(),
+                })
+            }
+            Err(error) => Err(error),
+        };
+        let _ = fs::remove_dir_all(smoke_home);
+        result
+    }
+
+    fn wait_for_update_tick(&self, duration: Duration) -> bool {
+        let deadline = Instant::now() + duration;
+        while Instant::now() < deadline {
+            if self.shutting_down.load(Ordering::Acquire) {
+                return false;
+            }
+            thread::sleep(
+                deadline
+                    .saturating_duration_since(Instant::now())
+                    .min(Duration::from_secs(60)),
+            );
+        }
+        !self.shutting_down.load(Ordering::Acquire)
     }
 
     fn reconcile_state(&self, state: &mut RuntimeState) {
@@ -519,16 +689,14 @@ impl RuntimeManager {
         timeout: Duration,
     ) -> Result<(ManagedProcess, String), String> {
         let cli = runtime_cli(runtime_path);
-        let mut command = Command::new(&self.paths.node);
+        let mut command = self.node_entry_command(&cli, &user_home())?;
         command
-            .arg(cli)
             .args(["web", "--port", "0"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .env("NODE_ENV", "production")
             .env("DSH_DESKTOP", "1")
-            .env("PATH", runtime_path_env(&self.paths.node, runtime_path))
-            .current_dir(user_home());
+            .env("PATH", runtime_path_env(&self.paths.node, runtime_path));
         if let Some(home) = dsh_home {
             command.env("DSH_HOME", home);
         }
@@ -604,25 +772,52 @@ impl RuntimeManager {
         }
     }
 
-    fn check_for_updates_inner(&self, force: bool) -> Result<UpdateOutcome, String> {
+    fn node_entry_command(&self, entry: &Path, cwd: &Path) -> Result<Command, String> {
+        let launcher_dir = self
+            .paths
+            .node_launcher
+            .parent()
+            .ok_or_else(|| "捆绑的 Node 启动器目录无效".to_string())?;
+        let launcher_name = self
+            .paths
+            .node_launcher
+            .file_name()
+            .ok_or_else(|| "捆绑的 Node 启动器文件名无效".to_string())?;
+        let mut command = Command::new(&self.paths.node);
+        command
+            .arg(launcher_name)
+            .current_dir(launcher_dir)
+            .env(NODE_ENTRY_ENV, node_compatible_path(entry))
+            .env(NODE_CWD_ENV, node_compatible_path(cwd));
+        Ok(command)
+    }
+
+    fn check_for_updates_inner(
+        &self,
+        force: bool,
+        channel: RuntimeUpdateChannel,
+    ) -> Result<UpdateOutcome, String> {
         let now = unix_time();
         {
             let mut state = self
                 .state
                 .lock()
                 .map_err(|_| "版本状态锁已损坏".to_string())?;
-            if !force && !update_is_due(&state, now) {
+            if state.update_channel != channel {
+                return Ok(UpdateOutcome::Skipped);
+            }
+            if !update_check_is_due(&state, now, force) {
                 return Ok(UpdateOutcome::Skipped);
             }
             state.last_update_attempt = Some(now);
             self.save_state(&state)?;
         }
 
-        let mut command = Command::new(&self.paths.node);
+        let mut command = self.node_entry_command(&self.paths.npm_cli, &self.paths.npm_cache)?;
         configure_background_command(&mut command);
+        let selector = format!("dist-tags.{}", channel.dist_tag());
         let output = command
-            .arg(&self.paths.npm_cli)
-            .args(["view", PACKAGE_NAME, "dist-tags.latest", "--json"])
+            .args(["view", PACKAGE_NAME, selector.as_str(), "--json"])
             .env("npm_config_cache", &self.paths.npm_cache)
             .env("npm_config_update_notifier", "false")
             .output()
@@ -633,15 +828,22 @@ impl RuntimeManager {
                 String::from_utf8_lossy(&output.stderr).trim()
             ));
         }
-        let latest = parse_npm_version(&output.stdout)?;
-        Version::parse(&latest)
-            .map_err(|error| format!("npm latest 不是合法版本 {latest:?}：{error}"))?;
+        let candidate = parse_npm_version(&output.stdout)?;
+        Version::parse(&candidate).map_err(|error| {
+            format!(
+                "npm {} 不是合法版本 {candidate:?}：{error}",
+                channel.dist_tag()
+            )
+        })?;
 
         let active = {
             let mut state = self
                 .state
                 .lock()
                 .map_err(|_| "版本状态锁已损坏".to_string())?;
+            if state.update_channel != channel {
+                return Ok(UpdateOutcome::Skipped);
+            }
             state.last_successful_check = Some(now);
             self.save_state(&state)?;
             state
@@ -649,28 +851,38 @@ impl RuntimeManager {
                 .clone()
                 .unwrap_or_else(|| self.manifest.dsh_version.clone())
         };
-        if !version_is_newer(&latest, &active) {
-            return Ok(UpdateOutcome::Current);
+        match compare_runtime_versions(&candidate, &active)? {
+            std::cmp::Ordering::Less => {
+                return Ok(UpdateOutcome::Ahead {
+                    active,
+                    target: candidate,
+                });
+            }
+            std::cmp::Ordering::Equal => return Ok(UpdateOutcome::Current),
+            std::cmp::Ordering::Greater => {}
         }
 
         self.set_update_status(
             RuntimeUpdatePhase::Installing,
-            Some(latest.clone()),
-            Some(format!("正在安装 DSH {latest}")),
+            Some(candidate.clone()),
+            Some(format!("正在安装 DSH {candidate}")),
         );
-        let destination = self.paths.runtimes.join(&latest);
+        let destination = self.paths.runtimes.join(&candidate);
         if !runtime_cli(&destination).is_file() {
-            self.install_and_verify(&latest, &destination)?;
+            self.install_and_verify(&candidate, &destination)?;
         }
         {
             let mut state = self
                 .state
                 .lock()
                 .map_err(|_| "版本状态锁已损坏".to_string())?;
-            state.pending = Some(latest.clone());
+            if state.update_channel != channel {
+                return Ok(UpdateOutcome::Skipped);
+            }
+            state.pending = Some(candidate.clone());
             self.save_state(&state)?;
         }
-        Ok(UpdateOutcome::Staged(latest))
+        Ok(UpdateOutcome::Staged(candidate))
     }
 
     fn install_and_verify(&self, version: &str, destination: &Path) -> Result<(), String> {
@@ -693,10 +905,9 @@ impl RuntimeManager {
             &self.desktop_log(),
             &format!("installing {PACKAGE_NAME}@{version}"),
         );
-        let mut install_command = Command::new(&self.paths.node);
+        let mut install_command = self.node_entry_command(&self.paths.npm_cli, &stage)?;
         configure_background_command(&mut install_command);
         let output = install_command
-            .arg(&self.paths.npm_cli)
             .args([
                 "install",
                 "--omit=dev",
@@ -705,7 +916,6 @@ impl RuntimeManager {
                 "--no-fund",
                 "--package-lock=false",
             ])
-            .current_dir(&stage)
             .env("npm_config_cache", &self.paths.npm_cache)
             .env("npm_config_update_notifier", "false")
             .env("npm_config_strict_allow_scripts", "true")
@@ -729,10 +939,9 @@ impl RuntimeManager {
             Some(version.to_string()),
             Some("正在验证版本与启动能力".to_string()),
         );
-        let mut version_command = Command::new(&self.paths.node);
+        let mut version_command = self.node_entry_command(&runtime_cli(&stage), &stage)?;
         configure_background_command(&mut version_command);
         let version_output = version_command
-            .arg(runtime_cli(&stage))
             .arg("--version")
             .output()
             .map_err(|error| format!("无法验证新版本：{error}"))?;
@@ -830,6 +1039,7 @@ impl RuntimeManager {
 
 enum UpdateOutcome {
     Current,
+    Ahead { active: String, target: String },
     Staged(String),
     Skipped,
 }
@@ -1005,11 +1215,27 @@ fn update_package_manifest(version: &str) -> serde_json::Value {
     })
 }
 
+fn compare_runtime_versions(candidate: &str, active: &str) -> Result<std::cmp::Ordering, String> {
+    let candidate = Version::parse(candidate)
+        .map_err(|error| format!("候选 DSH 版本 {candidate:?} 无效：{error}"))?;
+    let active = Version::parse(active)
+        .map_err(|error| format!("当前 DSH 版本 {active:?} 无效：{error}"))?;
+    Ok(candidate.cmp(&active))
+}
+
 fn version_is_newer(candidate: &str, active: &str) -> bool {
-    match (Version::parse(candidate), Version::parse(active)) {
-        (Ok(candidate), Ok(active)) => candidate > active,
-        _ => false,
+    compare_runtime_versions(candidate, active).is_ok_and(std::cmp::Ordering::is_gt)
+}
+
+fn select_update_channel(state: &mut RuntimeState, channel: RuntimeUpdateChannel) -> bool {
+    if state.update_channel == channel {
+        return false;
     }
+    state.update_channel = channel;
+    state.pending = None;
+    state.last_update_attempt = None;
+    state.last_successful_check = None;
+    true
 }
 
 fn node_platform_name(rust_name: &str) -> &str {
@@ -1036,6 +1262,10 @@ fn update_is_due(state: &RuntimeState, now: u64) -> bool {
         .last_update_attempt
         .is_none_or(|last| now.saturating_sub(last) >= FAILED_RETRY_SECS);
     success_due && retry_due
+}
+
+fn update_check_is_due(state: &RuntimeState, now: u64, force: bool) -> bool {
+    force || update_is_due(state, now)
 }
 
 fn launch_candidates(state: &RuntimeState, bundled: &str) -> Vec<String> {
@@ -1144,7 +1374,7 @@ mod tests {
     }
 
     #[test]
-    fn respects_daily_checks_and_short_failure_retries() {
+    fn respects_half_day_checks_and_short_failure_retries() {
         let now = 200_000;
         assert!(update_is_due(&RuntimeState::default(), now));
         assert!(!update_is_due(
@@ -1170,6 +1400,60 @@ mod tests {
             },
             now
         ));
+        assert!(update_check_is_due(
+            &RuntimeState {
+                last_update_attempt: Some(now),
+                last_successful_check: Some(now),
+                ..RuntimeState::default()
+            },
+            now,
+            true
+        ));
+    }
+
+    #[test]
+    fn defaults_legacy_runtime_state_to_latest_channel() {
+        let state: RuntimeState = serde_json::from_str(
+            r#"{
+  "active": "0.1.0-rc.7",
+  "pending": null
+}"#,
+        )
+        .expect("read legacy runtime state");
+        assert_eq!(state.update_channel, RuntimeUpdateChannel::Latest);
+        assert_eq!(RuntimeUpdateChannel::Latest.dist_tag(), "latest");
+        assert_eq!(RuntimeUpdateChannel::Next.dist_tag(), "next");
+    }
+
+    #[test]
+    fn switching_channels_cancels_pending_work_without_downgrading_active() {
+        let mut state = RuntimeState {
+            active: Some("0.1.0-rc.8".to_string()),
+            pending: Some("0.1.0-rc.9".to_string()),
+            last_update_attempt: Some(100),
+            last_successful_check: Some(90),
+            update_channel: RuntimeUpdateChannel::Next,
+            ..RuntimeState::default()
+        };
+
+        assert!(select_update_channel(
+            &mut state,
+            RuntimeUpdateChannel::Latest
+        ));
+        assert_eq!(state.active.as_deref(), Some("0.1.0-rc.8"));
+        assert_eq!(state.pending, None);
+        assert_eq!(state.last_update_attempt, None);
+        assert_eq!(state.last_successful_check, None);
+        assert!(!select_update_channel(
+            &mut state,
+            RuntimeUpdateChannel::Latest
+        ));
+        assert_eq!(
+            serde_json::to_value(&state)
+                .expect("serialize runtime state")
+                .pointer("/updateChannel"),
+            Some(&serde_json::Value::String("latest".to_string()))
+        );
     }
 
     #[test]
@@ -1177,6 +1461,10 @@ mod tests {
         assert!(version_is_newer("0.1.0", "0.1.0-rc.6"));
         assert!(version_is_newer("0.1.0-rc.7", "0.1.0-rc.6"));
         assert!(!version_is_newer("0.1.0-rc.5", "0.1.0-rc.6"));
+        assert_eq!(
+            compare_runtime_versions("0.1.0-rc.7", "0.1.0-rc.8"),
+            Ok(std::cmp::Ordering::Less)
+        );
     }
 
     #[test]

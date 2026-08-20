@@ -1,13 +1,15 @@
 {
   "name": "dsh-desktop",
   "private": true,
-  "version": "0.1.6",
+  "version": "0.1.7",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "desktop:dev": "tauri dev",
+    "prepare:runtime": "node scripts/prepare-runtime.mjs",
+    "runtime:smoke": "node scripts/smoke-runtime.mjs",
+    "desktop:dev": "npm run prepare:runtime && tauri dev",
     "desktop:build": "node scripts/build-desktop.mjs",
     "version:set": "node scripts/set-version.mjs",
     "release:verify": "node scripts/verify-release-version.mjs",

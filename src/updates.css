@@ -28,7 +28,7 @@ button {
 .updates-shell {
   position: relative;
   width: min(100vw, 460px);
-  height: min(100vh, 320px);
+  height: min(100vh, 370px);
   min-height: 0;
   padding: 30px 24px 13px;
   display: flex;
@@ -77,6 +77,103 @@ button {
 
 .update-item + .update-item {
   border-top: 1px solid rgba(255, 255, 255, 0.075);
+}
+
+.update-item-runtime {
+  row-gap: 11px;
+}
+
+.runtime-channel-setting {
+  grid-column: 1 / -1;
+  min-width: 0;
+  padding-top: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.065);
+}
+
+.runtime-channel-copy {
+  min-width: 0;
+}
+
+.runtime-channel-copy label {
+  display: block;
+  color: #cdd1d9;
+  font-size: 11.5px;
+  font-weight: 560;
+  line-height: 1.35;
+}
+
+.runtime-channel-copy p {
+  margin: 2px 0 0;
+  color: #747a84;
+  font-size: 10.5px;
+  line-height: 1.35;
+}
+
+.channel-switch {
+  position: relative;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 19px;
+  -webkit-app-region: no-drag;
+  cursor: pointer;
+}
+
+.channel-switch input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+}
+
+.channel-switch-track {
+  width: 32px;
+  height: 19px;
+  padding: 2px;
+  display: block;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  background: #292d35;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+
+.channel-switch-thumb {
+  display: block;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #a1a7b1;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  transition: transform 140ms ease, background 140ms ease;
+}
+
+.channel-switch input:checked + .channel-switch-track {
+  border-color: rgba(90, 137, 224, 0.65);
+  background: #376fcf;
+}
+
+.channel-switch input:checked + .channel-switch-track .channel-switch-thumb {
+  background: #fff;
+  transform: translateX(13px);
+}
+
+.channel-switch input:focus-visible + .channel-switch-track {
+  outline: 2px solid #8db4ff;
+  outline-offset: 3px;
+}
+
+.channel-switch input:disabled + .channel-switch-track {
+  opacity: 0.5;
+}
+
+.channel-switch:has(input:disabled) {
+  cursor: default;
 }
 
 .component-name {

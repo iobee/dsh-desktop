@@ -5,16 +5,13 @@ import {
   Cube,
   ShieldCheck,
   Warning,
-  WindowsLogo,
 } from "@phosphor-icons/react";
 
 const links = {
   github: "https://github.com/iobee/dsh-desktop",
   docs: "https://github.com/iobee/dsh-desktop#使用方式",
   releases: "https://github.com/iobee/dsh-desktop/releases",
-  mac: "https://github.com/iobee/dsh-desktop/releases/download/v0.1.5/DSH.Desktop_0.1.5_aarch64.dmg",
-  windows:
-    "https://github.com/iobee/dsh-desktop/releases/download/v0.1.5/DSH.Desktop_0.1.5_x64-setup.exe",
+  mac: "https://github.com/iobee/dsh-desktop/releases/download/v0.1.7/DSH.Desktop_0.1.7_aarch64.dmg",
 };
 
 const assets = {
@@ -25,18 +22,18 @@ const assets = {
 
 const benefits = [
   {
-    title: "沿用本机",
-    description: "复用现有 Node、npm 与 DSH；仅在缺失时准备用户级 DSH。",
+    title: "开箱即用",
+    description: "内置 Node、npm 与可用 dsh 运行时，无需预装开发环境，下载即用。",
     Icon: Cube,
   },
   {
-    title: "安静更新",
-    description: "后台只检查新版本，确认后仍在 DSH 原安装位置更新。",
+    title: "跟随 npm",
+    description: "每 12 小时后台检查一次，也可随时手动检查；启动不等待网络。",
     Icon: ArrowsClockwise,
   },
   {
-    title: "安装前验证",
-    description: "新版本先在临时目录完成启动验证，失败时不主动切换当前版本。",
+    title: "终端不冲突",
+    description: "默认不改 PATH；可选安装命令，已有 dsh 时自动使用 dsh-desktop。",
     Icon: ShieldCheck,
   },
 ];
@@ -55,16 +52,14 @@ function ExternalLink({ href, className, children, label }) {
   );
 }
 
-function DownloadButton({ href, platform, children, primary = false }) {
-  const Icon = platform === "mac" ? AppleLogo : WindowsLogo;
-
+function DownloadButton({ href, children, primary = false }) {
   return (
     <ExternalLink
       className={`button ${primary ? "button-primary" : "button-secondary"}`}
       href={href}
-      label={`下载 DSH Desktop ${platform === "mac" ? "macOS Apple Silicon" : "Windows x64"} 版`}
+      label="下载 DSH Desktop macOS Apple Silicon 版"
     >
-      <Icon aria-hidden="true" size={22} weight="fill" />
+      <AppleLogo aria-hidden="true" size={22} weight="fill" />
       <span>{children}</span>
     </ExternalLink>
   );
@@ -97,17 +92,14 @@ export function App() {
             <span>像普通应用一样打开</span>
           </h1>
           <p className="hero-copy">
-            轻量的 macOS 与 Windows 桌面外壳。
+            轻量的 macOS 桌面外壳。
             <br />
-            沿用本机 Node、npm 与已有 DSH，缺失时自动准备用户级 DSH。
+            内置 Node、npm 与可用 dsh 运行时，无需预装开发环境。
           </p>
 
           <div className="hero-actions" aria-label="下载 DSH Desktop">
-            <DownloadButton href={links.mac} platform="mac" primary>
+            <DownloadButton href={links.mac} primary>
               下载 macOS 版
-            </DownloadButton>
-            <DownloadButton href={links.windows} platform="windows">
-              下载 Windows 版
             </DownloadButton>
             <ExternalLink className="github-link" href={links.github}>
               查看 GitHub
@@ -146,7 +138,7 @@ export function App() {
           <div>
             <h2>开发者预览版</h2>
             <p>
-              面向技术用户的预览构建。当前版本尚未进行 Apple Notarization 或 Windows Authenticode 签名。
+              面向技术用户的预览构建。当前版本尚未进行 Apple Notarization。
             </p>
           </div>
         </aside>
@@ -158,7 +150,7 @@ export function App() {
             <img src={assets.icon} alt="" />
             <div>
               <strong>DSH Desktop</strong>
-              <p>独立、轻量，并与终端共享 DSH 的桌面入口。</p>
+              <p>独立、轻量、开箱即用的 DeepSeek Harness 桌面入口。</p>
             </div>
           </div>
 

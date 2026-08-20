@@ -5,6 +5,7 @@ import {
   messageOf,
   previewInfo,
   readVersionInfo,
+  type RuntimeUpdateChannel,
   type RuntimeUpdateSnapshot,
   tauriRuntime,
   type VersionInfo,
@@ -20,6 +21,7 @@ interface StatusPresentation {
 }
 
 const dshVersion = element<HTMLElement>("dsh-version");
+const dshChannel = element<HTMLElement>("dsh-channel");
 const desktopVersion = element<HTMLElement>("desktop-version");
 const dshStatus = element<HTMLElement>("dsh-status");
 const desktopStatus = element<HTMLElement>("desktop-status");
@@ -32,7 +34,9 @@ const desktopProgressWrap = element<HTMLElement>("desktop-progress-wrap");
 const dshProgress = element<HTMLProgressElement>("dsh-progress");
 const desktopProgress = element<HTMLProgressElement>("desktop-progress");
 const checkAll = element<HTMLButtonElement>("check-all");
+const dshBeta = element<HTMLInputElement>("dsh-beta");
 const toast = element<HTMLElement>("toast");
+let channelChanging = false;
 
 function element<T extends HTMLElement>(id: string): T {
   const value = document.getElementById(id);
@@ -47,15 +51,8 @@ function runtimePresentation(update: RuntimeUpdateSnapshot): StatusPresentation 
       return status("正在检查", update.detail, "accent", true, false, null);
     case "current":
       return status("已是最新版本", update.detail, "success", false, false, null);
-    case "available":
-      return status(
-        target ? `${target} 可用` : "发现新版本",
-        update.detail,
-        "accent",
-        false,
-        false,
-        null,
-      );
+    case "ahead":
+      return status("保持当前版本", update.detail, "neutral", false, false, null);
     case "installing":
       return status(
         target ? `正在安装 ${target}` : "正在安装",
@@ -174,6 +171,8 @@ function friendlyErrorDetail(detail: string | null): string {
 function render(info: VersionInfo): void {
   desktopVersion.textContent = info.desktopVersion;
   dshVersion.textContent = info.runtime.currentVersion;
+  dshChannel.textContent = info.runtime.updateChannel === "next" ? "Beta 通道" : "默认通道";
+  if (!channelChanging) dshBeta.checked = info.runtime.updateChannel === "next";
 
   const desktop = desktopPresentation(info.desktopUpdate);
   const runtime = runtimePresentation(info.runtime.update);
@@ -195,9 +194,10 @@ function render(info: VersionInfo): void {
   );
 
   checkAll.disabled = desktop.busy || runtime.busy;
+  dshBeta.disabled = runtime.busy || channelChanging;
   checkAll.textContent = checkAll.disabled
     ? "正在更新…"
-    : info.desktopUpdate.phase === "available" || info.runtime.update.phase === "available"
+    : info.desktopUpdate.phase === "available"
       ? "继续更新"
       : "检查更新";
 }
@@ -257,11 +257,53 @@ async function requestAllUpdates(): Promise<void> {
   }
 }
 
+async function setRuntimeChannel(channel: RuntimeUpdateChannel): Promise<void> {
+  if (!tauriRuntime) {
+    simulateChannelChange(channel);
+    return;
+  }
+
+  channelChanging = true;
+  dshBeta.disabled = true;
+  try {
+    await invoke<boolean>("set_dsh_update_channel", { channel });
+    channelChanging = false;
+    showToast(
+      channel === "next"
+        ? "已加入 DSH Beta，正在检查 npm next"
+        : "已回到默认通道；当前版本不会自动降级",
+    );
+    await refresh();
+  } catch (reason) {
+    channelChanging = false;
+    showToast(`无法切换 DSH 更新通道：${messageOf(reason)}`);
+    await refresh();
+  }
+}
+
+function simulateChannelChange(channel: RuntimeUpdateChannel): void {
+  previewInfo.runtime.updateChannel = channel;
+  previewInfo.runtime.update = {
+    phase: "checking",
+    targetVersion: null,
+    detail: `正在查询 npm ${channel} 通道`,
+  };
+  render(previewInfo);
+  window.setTimeout(() => {
+    previewInfo.runtime.update = {
+      phase: "current",
+      targetVersion: null,
+      detail: channel === "next" ? "已是 DSH Beta 当前版本" : "已是 npm latest 当前版本",
+    };
+    render(previewInfo);
+  }, 900);
+}
+
 function simulatePreviewCheck(): void {
   previewInfo.runtime.update = {
     phase: "checking",
     targetVersion: null,
-    detail: "正在查询 npm 最新版本",
+    detail: `正在查询 npm ${previewInfo.runtime.updateChannel} 通道`,
   };
   previewInfo.desktopUpdate = {
     phase: "checking",
@@ -319,6 +361,9 @@ if (!tauriRuntime) {
 }
 
 checkAll.addEventListener("click", () => void requestAllUpdates());
+dshBeta.addEventListener("change", () => {
+  void setRuntimeChannel(dshBeta.checked ? "next" : "latest");
+});
 
 void refresh();
 if (tauriRuntime) window.setInterval(() => void refresh(), 600);

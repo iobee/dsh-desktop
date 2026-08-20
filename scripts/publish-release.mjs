@@ -51,7 +51,7 @@ const version = config.version;
 const tag = `v${version}`;
 const notes =
   notesArgument ??
-  "System Node/npm initialization, user-level DSH, and explicit desktop/runtime updates.";
+  "Signed in-app updates, non-blocking background checks, and the latest npm dsh runtime.";
 
 if (platform() !== "darwin" || arch() !== "arm64") {
   throw new Error(`Releases must be built on Apple Silicon macOS, got ${platform()}-${arch()}`);
@@ -113,6 +113,8 @@ if (!dryRun) {
   }
 }
 
+run("npm", ["run", "prepare:runtime"]);
+run("npm", ["run", "runtime:smoke"]);
 run("cargo", ["test", "--manifest-path", "src-tauri/Cargo.toml"]);
 run("npm", ["run", "desktop:build"]);
 
@@ -230,14 +232,16 @@ await writeFile(
   `${checksumLines.join("\n")}\n`,
 );
 
+const runtimeManifest = JSON.parse(
+  await readFile(join(root, "src-tauri", "resources", "runtime-manifest.json"), "utf8"),
+);
 const releaseNotesPath = join(publishDirectory, "release-notes.md");
 await writeFile(
   releaseNotesPath,
   `${notes}\n\n` +
     `- Apple Silicon macOS\n` +
     (publishedWindowsInstaller ? `- x64 Windows 10/11\n` : "") +
-    `- Requires Node.js 22.19+ (22.x) or 24+\n` +
-    `- Reuses an existing DSH or initializes it in a user-level prefix\n` +
+    `- Bundled \`@deepseek-ai/dsh@${runtimeManifest.dshVersion}\`\n` +
     `- macOS is ad-hoc signed and not notarized\n` +
     (publishedWindowsInstaller ? `- Windows is not Authenticode signed\n` : "") +
     `\nmacOS first installation may require:\n\n` +
