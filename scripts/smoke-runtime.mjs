@@ -33,7 +33,7 @@ const cli = join(
   "bin.js",
 );
 const smokeHome = await mkdtemp(join(tmpdir(), "dsh-desktop-runtime-"));
-const child = spawn(node, [cli, "web", "--port", "0"], {
+const child = spawn(node, [cli, "web", "--port", "0", "--no-open"], {
   cwd: smokeHome,
   detached: hostPlatform !== "win32",
   env: {

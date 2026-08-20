@@ -159,6 +159,13 @@ main,
   margin-top: 2.25rem;
 }
 
+.release-meta {
+  margin: 0.85rem 0 0;
+  color: #687286;
+  font-size: 0.76rem;
+  letter-spacing: 0.015em;
+}
+
 .button {
   display: inline-flex;
   align-items: center;

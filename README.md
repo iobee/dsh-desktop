@@ -2,6 +2,8 @@
 
 DSH Desktop 是一个独立、轻量的 macOS 与 Windows 外壳，让 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 可以像普通应用一样打开。macOS 使用沉浸式窗口，不保留单独的标题栏占位，原生窗口按钮仅在鼠标移入左上角时显示；外壳不修改、复制或 fork 来源仓库的代码，运行内容始终来自 npm 官方包 `@deepseek-ai/dsh`。
 
+DSH 的 Web 界面直接显示在应用窗口中；支持该选项的运行时不会再额外打开系统浏览器，旧版运行时会自动使用兼容启动方式。
+
 产品介绍与下载：[DSH Desktop 官网](https://iobee.github.io/dsh-desktop/)
 
 ## 使用方式

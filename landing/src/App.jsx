@@ -11,7 +11,7 @@ const links = {
   github: "https://github.com/iobee/dsh-desktop",
   docs: "https://github.com/iobee/dsh-desktop#使用方式",
   releases: "https://github.com/iobee/dsh-desktop/releases",
-  mac: "https://github.com/iobee/dsh-desktop/releases/download/v0.1.9/DSH.Desktop_0.1.9_aarch64.dmg",
+  mac: "https://github.com/iobee/dsh-desktop/releases/download/v0.1.11/DSH.Desktop_0.1.11_aarch64.dmg",
 };
 
 const assets = {
@@ -23,7 +23,7 @@ const assets = {
 const benefits = [
   {
     title: "极简轻量",
-    description: "内置必要运行环境，下载即可打开；桌面壳只负责启动、更新和可选终端入口。",
+    description: "内置必要运行环境，下载即可打开；DSH 直接运行在应用内，不再额外弹出系统浏览器。",
     Icon: Cube,
   },
   {
@@ -106,6 +106,7 @@ export function App() {
               <ArrowSquareOut aria-hidden="true" size={16} />
             </ExternalLink>
           </div>
+          <p className="release-meta">v0.1.11 · Apple Silicon · macOS 预览版</p>
 
         </section>
 

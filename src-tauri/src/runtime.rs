@@ -32,6 +32,8 @@ const INSTALL_SCRIPT_PACKAGES: [&str; 5] = [
     "node-pty",
     "protobufjs",
 ];
+const WEB_COMMAND_ARGS: [&str; 3] = ["web", "--port", "0"];
+const NO_OPEN_ARGUMENT: &str = "--no-open";
 const READY_PREFIX: &str = "dsh web: ";
 const START_TIMEOUT: Duration = Duration::from_secs(30);
 const UPDATE_DELAY: Duration = Duration::from_secs(60);
@@ -688,22 +690,48 @@ impl RuntimeManager {
         dsh_home: Option<&Path>,
         timeout: Duration,
     ) -> Result<(ManagedProcess, String), String> {
+        append_log(&self.desktop_log(), &format!("launching dsh {version}"));
+        let first_attempt = self.launch_at_once(runtime_path, dsh_home, timeout, true);
+        if first_attempt
+            .as_ref()
+            .is_err_and(|error| no_open_is_unsupported(error))
+        {
+            append_log(
+                &self.desktop_log(),
+                &format!(
+                    "dsh {version} does not support {NO_OPEN_ARGUMENT}; retrying legacy web arguments"
+                ),
+            );
+            return self.launch_at_once(runtime_path, dsh_home, timeout, false);
+        }
+        first_attempt
+    }
+
+    fn launch_at_once(
+        &self,
+        runtime_path: &Path,
+        dsh_home: Option<&Path>,
+        timeout: Duration,
+        suppress_browser: bool,
+    ) -> Result<(ManagedProcess, String), String> {
         let cli = runtime_cli(runtime_path);
         let mut command = self.node_entry_command(&cli, &user_home())?;
         let child_path = runtime_path_env(&self.paths.node, runtime_path)?;
         command
-            .args(["web", "--port", "0"])
+            .args(WEB_COMMAND_ARGS)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .env("NODE_ENV", "production")
             .env("DSH_DESKTOP", "1")
             .env("PATH", child_path);
+        if suppress_browser {
+            command.arg(NO_OPEN_ARGUMENT);
+        }
         if let Some(home) = dsh_home {
             command.env("DSH_HOME", home);
         }
         configure_managed_command(&mut command);
 
-        append_log(&self.desktop_log(), &format!("launching dsh {version}"));
         let mut child = command
             .spawn()
             .map_err(|error| format!("无法创建 Node 进程：{error}"))?;
@@ -1204,6 +1232,10 @@ fn parse_ready_url(line: &str) -> Option<String> {
     }
 }
 
+fn no_open_is_unsupported(error: &str) -> bool {
+    error.contains("unknown option '--no-open'")
+}
+
 fn parse_npm_version(bytes: &[u8]) -> Result<String, String> {
     if let Ok(value) = serde_json::from_slice::<String>(bytes) {
         return Ok(value);
@@ -1378,6 +1410,50 @@ mod tests {
         );
         assert_eq!(parse_ready_url("dsh web: http://0.0.0.0:43121"), None);
         assert_eq!(parse_ready_url("noise http://127.0.0.1:43121"), None);
+    }
+
+    #[test]
+    fn recognizes_only_the_no_open_compatibility_error() {
+        assert!(no_open_is_unsupported("error: unknown option '--no-open'"));
+        assert!(!no_open_is_unsupported("error: unknown option '--port'"));
+        assert!(!no_open_is_unsupported("listen EADDRINUSE"));
+    }
+
+    #[test]
+    fn retries_a_legacy_runtime_without_no_open() {
+        let resources = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources");
+        let app_data = env::temp_dir().join(format!(
+            "dsh-desktop-legacy-web-{}-{}",
+            std::process::id(),
+            unix_time()
+        ));
+        let runtime = app_data.join("legacy-runtime");
+        let cli = runtime_cli(&runtime);
+        fs::create_dir_all(cli.parent().expect("legacy CLI parent"))
+            .expect("create legacy CLI directory");
+        fs::write(
+            &cli,
+            r#"
+if (process.argv.includes("--no-open")) {
+  console.error("error: unknown option '--no-open'");
+  process.exit(1);
+}
+console.log("dsh web: http://127.0.0.1:43123");
+setInterval(() => {}, 1000);
+"#,
+        )
+        .expect("write legacy CLI");
+        let manager = RuntimeManager::new(resources, app_data.clone())
+            .expect("initialize legacy runtime test manager");
+        let dsh_home = app_data.join("dsh-home");
+        fs::create_dir_all(&dsh_home).expect("create legacy DSH home");
+
+        let (mut process, url) = manager
+            .launch_at("legacy-test", &runtime, Some(&dsh_home), START_TIMEOUT)
+            .expect("retry legacy runtime without --no-open");
+        assert_eq!(url, "http://127.0.0.1:43123");
+        process.terminate();
+        let _ = fs::remove_dir_all(app_data);
     }
 
     #[test]
